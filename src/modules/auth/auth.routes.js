@@ -1,0 +1,43 @@
+import express from "express";
+import passport from "passport";
+import { register, login, logout, me, googleCallback } from "./auth.controller.js";
+import authMiddleware from "../../middleware/authMiddleware.js";
+
+// Function to create routes after environment variables are loaded
+export function createAuthRoutes() {
+  const router = express.Router();
+
+  // Local authentication routes
+  router.post("/register", register);
+  router.post("/login", login);
+  router.post("/logout", logout);
+  router.get("/me", authMiddleware, me);
+
+  // Google OAuth routes - only if Google credentials are available
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    
+    router.get("/google", 
+      passport.authenticate("google", { scope: ["profile", "email"] })
+    );
+
+    router.get("/google/callback",
+      passport.authenticate("google", { failureRedirect: "/login" }),
+      googleCallback
+    );
+  } else {
+    
+    // Fallback routes when Google OAuth is not configured
+    router.get("/google", (req, res) => {
+      res.status(503).json({ error: "Google OAuth is not configured" });
+    });
+    
+    router.get("/google/callback", (req, res) => {
+      res.status(503).json({ error: "Google OAuth is not configured" });
+    });
+  }
+
+  return router;
+}
+
+// Export the function as default
+export default createAuthRoutes;
