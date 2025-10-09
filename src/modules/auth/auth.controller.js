@@ -18,14 +18,69 @@ const cookieOptions = {
 
 export const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    const { user, token } = await registerLocal({ name, email, password });
+    const { 
+      name, 
+      email, 
+      password, 
+      role,
+      // Additional profile data
+      bio,
+      location,
+      phone,
+      // Freelancer specific
+      skills,
+      hourlyRate,
+      experience,
+      // Client specific  
+      companyName,
+      companySize,
+      industry
+    } = req.body;
+
+    // Prepare additional data based on role
+    const additionalData = {
+      bio,
+      location, 
+      phone
+    };
+
+    if (role === "freelancer") {
+      additionalData.skills = skills;
+      additionalData.hourlyRate = hourlyRate;
+      additionalData.experience = experience;
+    } else if (role === "client") {
+      additionalData.companyName = companyName;
+      additionalData.companySize = companySize;
+      additionalData.industry = industry;
+    }
+
+    const { user, token } = await registerLocal({ 
+      name, 
+      email, 
+      password, 
+      role, 
+      additionalData 
+    });
     
     // Set both cookie (for fallback/server-side) and return token in response
     res.cookie("token", token, cookieOptions)
        .status(201)
        .json({ 
-         user: { id: user._id, name: user.name, email: user.email },
+         user: { 
+           id: user._id, 
+           name: user.name, 
+           email: user.email, 
+           role: user.role,
+           bio: user.bio,
+           location: user.location,
+           phone: user.phone,
+           skills: user.skills,
+           hourlyRate: user.hourlyRate,
+           experience: user.experience,
+           companyName: user.companyName,
+           companySize: user.companySize,
+           industry: user.industry
+         },
          token: token
        });
   } catch (err) {
