@@ -10,18 +10,8 @@ const createToken = (user) => {
   );
 };
 
-export const registerLocal = async ({ name, email, password, role, additionalData = {} }) => {
-  // Validate required fields
-  if (!name || !email || !password) {
-    throw new Error("Name, email, and password are required");
-  }
-
-  // Validate role if provided
-  if (role && !["freelancer", "client"].includes(role)) {
-    throw new Error("Invalid role. Must be 'freelancer' or 'client'");
-  }
-
-  // Check if user already exists
+export const registerLocal = async ({ name, email, password, role }) => {
+  // Joi validation already done in middleware, just check for existing user
   const exists = await User.findOne({ email });
   if (exists) throw new Error("Email already registered");
 
@@ -34,29 +24,14 @@ export const registerLocal = async ({ name, email, password, role, additionalDat
     name,
     email,
     password: hashed,
-    role: role || null, // Allow null role for later completion
-    provider: "local",
-    ...additionalData
+    role: role || undefined, // undefined allows user to select role later
+    provider: "local"
   };
-
-  // Role-specific validations
-  if (role === "client" && additionalData.companyName) {
-    userData.companyName = additionalData.companyName;
-    userData.companySize = additionalData.companySize;
-    userData.industry = additionalData.industry;
-  }
-
-  if (role === "freelancer") {
-    userData.skills = additionalData.skills || [];
-    userData.experience = additionalData.experience;
-    userData.hourlyRate = additionalData.hourlyRate;
-  }
 
   // Create user
   const user = await User.create(userData);
   
   // Profile completion will be auto-calculated by the pre-save hook
-  // But we can explicitly set it here for clarity - ensure it's a boolean
   const isComplete = Boolean(user.checkProfileComplete());
   if (user.isProfileComplete !== isComplete) {
     user.isProfileComplete = isComplete;
