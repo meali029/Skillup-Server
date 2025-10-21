@@ -2,14 +2,21 @@ import express from "express";
 import passport from "passport";
 import { register, login, logout, me, googleCallback, completeProfile } from "./auth.controller.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
+import { 
+  validateRegister, 
+  validateLogin, 
+  validateRoleSelection,
+  validateFreelancerProfile,
+  validateClientProfile
+} from "./auth.validation.js";
 
 // Function to create routes after environment variables are loaded
 export function createAuthRoutes() {
   const router = express.Router();
 
   // Local authentication routes
-  router.post("/register", register);
-  router.post("/login", login);
+  router.post("/register", validateRegister, register);
+  router.post("/login", validateLogin, login);
   router.post("/logout", logout);
   router.get("/me", authMiddleware, me);
   router.post("/complete-profile", authMiddleware, completeProfile);

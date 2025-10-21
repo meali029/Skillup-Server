@@ -18,48 +18,19 @@ const cookieOptions = {
 
 export const register = async (req, res) => {
   try {
+    // Use validated data from middleware
     const { 
       name, 
       email, 
       password, 
-      role,
-      // Additional profile data
-      bio,
-      location,
-      phone,
-      // Freelancer specific
-      skills,
-      hourlyRate,
-      experience,
-      // Client specific  
-      companyName,
-      companySize,
-      industry
-    } = req.body;
-
-    // Prepare additional data based on role
-    const additionalData = {
-      bio,
-      location, 
-      phone
-    };
-
-    if (role === "freelancer") {
-      additionalData.skills = skills;
-      additionalData.hourlyRate = hourlyRate;
-      additionalData.experience = experience;
-    } else if (role === "client") {
-      additionalData.companyName = companyName;
-      additionalData.companySize = companySize;
-      additionalData.industry = industry;
-    }
+      role
+    } = req.validatedData;
 
     const { user, token } = await registerLocal({ 
       name, 
       email, 
       password, 
-      role, 
-      additionalData 
+      role
     });
     
     // Set both cookie (for fallback/server-side) and return token in response
@@ -72,15 +43,7 @@ export const register = async (req, res) => {
            email: user.email, 
            role: user.role,
            isProfileComplete: user.isProfileComplete,
-           bio: user.bio,
-           location: user.location,
-           phone: user.phone,
-           skills: user.skills,
-           hourlyRate: user.hourlyRate,
-           experience: user.experience,
-           companyName: user.companyName,
-           companySize: user.companySize,
-           industry: user.industry
+           avatar: user.avatar
          },
          token: token
        });
@@ -91,7 +54,8 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // Use validated data from middleware
+    const { email, password } = req.validatedData;
     const { user, token } = await loginLocal({ email, password });
     
     // Set both cookie (for fallback/server-side) and return token in response
@@ -102,7 +66,8 @@ export const login = async (req, res) => {
            name: user.name, 
            email: user.email,
            role: user.role,
-           isProfileComplete: user.isProfileComplete
+           isProfileComplete: user.isProfileComplete,
+           avatar: user.avatar
          },
          token: token
        });
