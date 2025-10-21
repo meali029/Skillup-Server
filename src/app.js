@@ -17,6 +17,7 @@ import cors from "cors";
 import session from "express-session";
 import passport, { initializePassport } from "./config/passport.js";
 import createAuthRoutes from "./modules/auth/auth.routes.js";
+import freelancerRoutes from "./modules/freelancer/freelancer.routes.js";
 import jobRoutes from "./modules/jobs/job.routes.js";
 
 // Initialize passport with loaded environment variables
@@ -51,6 +52,7 @@ app.use(cors({
 }));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/freelancers", freelancerRoutes);
 app.use("/api/jobs", jobRoutes);
 
 app.get("/api/health", (req, res) => res.json({status: "ok"}));

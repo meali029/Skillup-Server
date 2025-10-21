@@ -11,6 +11,8 @@ const result = dotenv.config({ path: envPath });
 
 import app from "./app.js";
 import connectDB from "./config/db.js";
+// Import all models to register them with Mongoose
+import './models/index.js';
 
 connectDB();
 

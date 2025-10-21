@@ -1,4 +1,5 @@
 import User from "../../models/User.js";
+import Freelancer from "../../models/Freelancer.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -30,6 +31,26 @@ export const registerLocal = async ({ name, email, password, role }) => {
 
   // Create user
   const user = await User.create(userData);
+  
+  // If user is a freelancer, create Freelancer document
+  if (role === 'freelancer') {
+    await Freelancer.create({
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      skills: additionalData.skills || [],
+      bio: additionalData.bio || '',
+      location: additionalData.location || '',
+      profileCompletion: 70, // Initial completion
+      earnings: {
+        total: 0,
+        pending: 0
+      },
+      proposals: [],
+      ongoingProjects: [],
+      reviews: []
+    });
+  }
   
   // Profile completion will be auto-calculated by the pre-save hook
   const isComplete = Boolean(user.checkProfileComplete());
@@ -72,6 +93,35 @@ export const completeProfile = async (userId, profileData) => {
     user.companyName = undefined;
     user.companySize = undefined;
     user.industry = undefined;
+    
+    // Create or update Freelancer document
+    const existingFreelancer = await Freelancer.findOne({ userId: user._id });
+    
+    if (!existingFreelancer) {
+      // Create new Freelancer document
+      await Freelancer.create({
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        skills: skills || [],
+        bio: bio || '',
+        location: location || '',
+        profileCompletion: 70, // Initial completion
+        earnings: {
+          total: 0,
+          pending: 0
+        },
+        proposals: [],
+        ongoingProjects: [],
+        reviews: []
+      });
+    } else {
+      // Update existing Freelancer document
+      existingFreelancer.skills = skills || [];
+      existingFreelancer.bio = bio || existingFreelancer.bio;
+      existingFreelancer.location = location || existingFreelancer.location;
+      await existingFreelancer.save();
+    }
   } else if (role === 'client') {
     user.companyName = companyName;
     user.companySize = companySize;
