@@ -1,11 +1,11 @@
-import { registerLocal, loginLocal } from "./auth.service.js";
+import { registerLocal, loginLocal, completeProfile as completeProfileService } from "./auth.service.js";
 import jwt from "jsonwebtoken";
 
 const createToken = (user) => {
   return jwt.sign(
     { id: user._id, email: user.email, role: user.role },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
   );
 };
 
@@ -13,7 +13,7 @@ const cookieOptions = {
   httpOnly: true,
   secure: process.env.COOKIE_SECURE === "true",
   sameSite: "lax",
-  maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
+  maxAge: 1000 * 60 * 60 * 24 * 1 // 1 day
 };
 
 export const register = async (req, res) => {
@@ -71,6 +71,7 @@ export const register = async (req, res) => {
            name: user.name, 
            email: user.email, 
            role: user.role,
+           isProfileComplete: user.isProfileComplete,
            bio: user.bio,
            location: user.location,
            phone: user.phone,
@@ -96,7 +97,13 @@ export const login = async (req, res) => {
     // Set both cookie (for fallback/server-side) and return token in response
     res.cookie("token", token, cookieOptions)
        .json({ 
-         user: { id: user._id, name: user.name, email: user.email },
+         user: { 
+           id: user._id, 
+           name: user.name, 
+           email: user.email,
+           role: user.role,
+           isProfileComplete: user.isProfileComplete
+         },
          token: token
        });
   } catch (err) {
@@ -108,18 +115,49 @@ export const login = async (req, res) => {
 export const googleCallback = async (req, res) => {
   try {
     if (!req.user) {
-      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}/login?error=auth_failed`);
+      console.error("Google OAuth: No user object received");
+      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5174'}/login?error=authentication_failed`);
     }
+    
+    console.log("Google OAuth successful for user:", req.user.email);
     
     const token = createToken(req.user);
     res.cookie("token", token, cookieOptions);
     
+    // Check if profile is complete
+    const isProfileComplete = req.user.isProfileComplete && req.user.role;
+    
     // Redirect to client's Google callback handler with token
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-    res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}`);
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
+    
+    if (!isProfileComplete) {
+      // Profile incomplete - redirect to complete profile page
+      res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
+    } else {
+      // Profile complete - redirect to dashboard
+      res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&success=true`);
+    }
   } catch (err) {
-    console.error("googleCallback error:", err);
-    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}/login?error=server_error`);
+    console.error("Google OAuth callback error:", err);
+    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5174'}/login?error=server_error`);
+  }
+};
+
+export const completeProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const profileData = req.body;
+
+    const user = await completeProfileService(userId, profileData);
+
+    // Return user without password
+    const userObject = user.toObject();
+    delete userObject.password;
+
+    res.json({ user: userObject, message: 'Profile completed successfully' });
+  } catch (err) {
+    console.error('Profile completion error:', err);
+    res.status(400).json({ error: err.message });
   }
 };
 

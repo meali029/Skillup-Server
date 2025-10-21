@@ -16,7 +16,7 @@ export const registerLocal = async ({ name, email, password, role, additionalDat
     throw new Error("Name, email, and password are required");
   }
 
-  // Validate role
+  // Validate role if provided
   if (role && !["freelancer", "client"].includes(role)) {
     throw new Error("Invalid role. Must be 'freelancer' or 'client'");
   }
@@ -34,7 +34,7 @@ export const registerLocal = async ({ name, email, password, role, additionalDat
     name,
     email,
     password: hashed,
-    role: role || "freelancer",
+    role: role || null, // Allow null role for later completion
     provider: "local",
     ...additionalData
   };
@@ -54,9 +54,68 @@ export const registerLocal = async ({ name, email, password, role, additionalDat
 
   // Create user
   const user = await User.create(userData);
+  
+  // Profile completion will be auto-calculated by the pre-save hook
+  // But we can explicitly set it here for clarity - ensure it's a boolean
+  const isComplete = Boolean(user.checkProfileComplete());
+  if (user.isProfileComplete !== isComplete) {
+    user.isProfileComplete = isComplete;
+    await user.save();
+  }
+  
   const token = createToken(user);
   
   return { user, token };
+};
+
+export const completeProfile = async (userId, profileData) => {
+  const { role, bio, location, phone, skills, hourlyRate, experience, companyName, companySize, industry } = profileData;
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  // Validate role
+  if (!role || !['freelancer', 'client'].includes(role)) {
+    throw new Error('Valid role (freelancer or client) is required');
+  }
+
+  // Update basic fields
+  user.role = role;
+  if (bio !== undefined) user.bio = bio;
+  if (location !== undefined) user.location = location;
+  if (phone !== undefined) user.phone = phone;
+
+  // Update role-specific fields
+  if (role === 'freelancer') {
+    user.skills = skills || [];
+    user.hourlyRate = hourlyRate;
+    user.experience = experience;
+    
+    // Clear client fields by setting to undefined
+    user.companyName = undefined;
+    user.companySize = undefined;
+    user.industry = undefined;
+  } else if (role === 'client') {
+    user.companyName = companyName;
+    user.companySize = companySize;
+    user.industry = industry;
+    
+    // Clear freelancer fields
+    user.skills = [];
+    user.hourlyRate = undefined;
+    user.experience = undefined;
+  }
+
+  // Calculate profile completion status - ensure it's a boolean
+  const isComplete = Boolean(user.checkProfileComplete());
+  user.isProfileComplete = isComplete;
+
+  // Save with validation
+  await user.save();
+
+  return user;
 };
 
 export const loginLocal = async ({ email, password }) => {

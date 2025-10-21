@@ -26,18 +26,21 @@ export function initializePassport() {
           // Link Google account to existing user
           user.googleId = profile.id;
           user.provider = 'google';
-          user.avatar = profile.photos[0].value;
+          user.avatar = profile.photos[0]?.value || '';
           await user.save();
           return done(null, user);
         }
         
-        // Create new user
+        // Create new user with basic info - no role yet
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
           email: profile.emails[0].value,
-          avatar: profile.photos[0].value,
-          provider: 'google'
+          avatar: profile.photos[0]?.value || '',
+          provider: 'google',
+          isEmailVerified: true, // Google emails are pre-verified
+          // role is omitted - user will select during profile completion
+          isProfileComplete: false
         });
         
         return done(null, user);

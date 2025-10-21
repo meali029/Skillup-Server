@@ -189,3 +189,7 @@ sessions/
 # Local configuration overrides
 config/local.js
 config/local.json
+
+
+.env.local
+.env

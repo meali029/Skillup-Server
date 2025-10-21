@@ -1,6 +1,6 @@
 import express from "express";
 import passport from "passport";
-import { register, login, logout, me, googleCallback } from "./auth.controller.js";
+import { register, login, logout, me, googleCallback, completeProfile } from "./auth.controller.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 
 // Function to create routes after environment variables are loaded
@@ -12,8 +12,11 @@ export function createAuthRoutes() {
   router.post("/login", login);
   router.post("/logout", logout);
   router.get("/me", authMiddleware, me);
+  router.post("/complete-profile", authMiddleware, completeProfile);
 
   // Google OAuth routes - only if Google credentials are available
+  const clientURL = process.env.CLIENT_URL || "http://localhost:5174";
+  
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     
     router.get("/google", 
@@ -21,7 +24,10 @@ export function createAuthRoutes() {
     );
 
     router.get("/google/callback",
-      passport.authenticate("google", { failureRedirect: "/login" }),
+      passport.authenticate("google", { 
+        failureRedirect: `${clientURL}/login?error=authentication_failed`,
+        session: false 
+      }),
       googleCallback
     );
   } else {
