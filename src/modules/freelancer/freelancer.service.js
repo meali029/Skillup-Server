@@ -1,43 +1,78 @@
-import freelancerRepository from '../../repositories/freelancer.repository.js';
-import jobRepository from '../../repositories/job.repository.js';
-import proposalRepository from '../../repositories/proposal.repository.js';
+import User from '../../models/User.js';
+import Job from '../../models/Job.js';
 
 class FreelancerService {
   async getFreelancerProfile(userId) {
-    const freelancer = await freelancerRepository.findByUserId(userId);
+    const user = await User.findById(userId).select('-password');
     
-    if (!freelancer) {
-      throw new Error('Freelancer profile not found');
+    if (!user) {
+      throw new Error('User not found');
     }
 
-    const proposalCount = await proposalRepository.countByFreelancerId(freelancer._id);
+    if (user.role !== 'freelancer') {
+      throw new Error('User is not a freelancer');
+    }
 
     return {
-      ...freelancer.toObject(),
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar,
+      bio: user.bio,
+      location: user.location,
+      phone: user.phone,
+      skills: user.skills || [],
+      hourlyRate: user.hourlyRate,
+      experience: user.experience,
+      portfolio: user.portfolio || [],
+      isProfileComplete: user.isProfileComplete,
       stats: {
-        totalProposals: proposalCount,
-        ongoingProjects: freelancer.ongoingProjects.length,
-        averageRating: this.calculateAverageRating(freelancer.reviews)
+        totalProposals: 0, // TODO: Calculate from Proposal model when available
+        ongoingProjects: 0, // TODO: Calculate from projects
+        averageRating: 0 // TODO: Calculate from reviews
       }
     };
   }
 
   async getRecommendedJobs(userId) {
-    const freelancer = await freelancerRepository.findByUserId(userId);
+    const user = await User.findById(userId);
     
-    if (!freelancer) {
-      throw new Error('Freelancer profile not found');
+    if (!user) {
+      throw new Error('User not found');
     }
 
-    const skills = freelancer.skills.length > 0 ? freelancer.skills : ['general'];
-    const jobs = await jobRepository.findRecommended(skills, 10);
+    if (user.role !== 'freelancer') {
+      throw new Error('User is not a freelancer');
+    }
+
+    // Get user's skills or use empty array
+    const userSkills = user.skills || [];
+
+    // Build query
+    const query = {
+      status: 'open',
+      isActive: true,
+      deletedAt: null
+    };
+
+    // If user has skills, match jobs with those skills
+    if (userSkills.length > 0) {
+      query.skills = { $in: userSkills };
+    }
+
+    // Find recommended jobs
+    const jobs = await Job.find(query)
+      .populate('client', 'name avatar companyName')
+      .sort({ createdAt: -1 })
+      .limit(10);
 
     return jobs;
   }
 
   async getFreelancerProposals(freelancerId) {
-    const proposals = await proposalRepository.findByFreelancerId(freelancerId, 10);
-    return proposals;
+    // TODO: Implement when Proposal model is created
+    // For now, return empty array
+    return [];
   }
 
   calculateAverageRating(reviews) {
