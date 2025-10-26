@@ -1,4 +1,5 @@
 import Job from '../../models/Job.js';
+import User from '../../models/User.js';
 
 class JobService {
   // Create a new job
@@ -11,6 +12,14 @@ class JobService {
       
       await job.save();
       await job.populate('client', 'name email companyName');
+      
+      // Increment client's job statistics
+      await User.findByIdAndUpdate(clientId, {
+        $inc: { 
+          postedJobsCount: 1,
+          activeJobsCount: job.status === 'open' ? 1 : 0
+        }
+      });
       
       return job;
     } catch (error) {
@@ -178,6 +187,8 @@ class JobService {
         throw new Error('Job not found or unauthorized');
       }
 
+      const wasOpen = job.status === 'open';
+      
       // Soft delete if no proposals, hard delete if in draft
       if (job.status === 'draft') {
         await Job.findByIdAndDelete(jobId);
@@ -188,6 +199,13 @@ class JobService {
       } else {
         throw new Error('Cannot delete job with active proposals. Close the job instead.');
       }
+      
+      // Decrement client's job statistics
+      const updates = { $inc: { postedJobsCount: -1 } };
+      if (wasOpen) {
+        updates.$inc.activeJobsCount = -1;
+      }
+      await User.findByIdAndUpdate(userId, updates);
 
       return { message: 'Job deleted successfully' };
     } catch (error) {
@@ -249,8 +267,16 @@ class JobService {
         throw new Error('Job not found or unauthorized');
       }
 
+      const previousStatus = job.status;
       job.status = 'closed';
       await job.save();
+      
+      // Decrement activeJobsCount if job was previously open
+      if (previousStatus === 'open') {
+        await User.findByIdAndUpdate(userId, {
+          $inc: { activeJobsCount: -1 }
+        });
+      }
 
       return job;
     } catch (error) {
@@ -290,6 +316,53 @@ class JobService {
       };
     } catch (error) {
       throw new Error(`Failed to fetch job statistics: ${error.message}`);
+    }
+  }
+
+  // Complete job and update user statistics
+  async completeJob(jobId, userId, freelancerId, finalAmount) {
+    try {
+      const job = await Job.findOne({
+        _id: jobId,
+        client: userId,
+        isActive: true,
+        deletedAt: null,
+      });
+
+      if (!job) {
+        throw new Error('Job not found or unauthorized');
+      }
+
+      if (job.status !== 'in-progress' && job.status !== 'in-review') {
+        throw new Error('Only jobs in progress or in review can be completed');
+      }
+
+      const wasOpen = job.status === 'open';
+      job.status = 'completed';
+      job.assignedFreelancer = freelancerId;
+      await job.save();
+
+      // Update client statistics
+      const clientUpdates = { 
+        $inc: { totalSpent: finalAmount || job.budgetAmount }
+      };
+      if (wasOpen) {
+        clientUpdates.$inc.activeJobsCount = -1;
+      }
+      await User.findByIdAndUpdate(userId, clientUpdates);
+
+      // Update freelancer statistics
+      await User.findByIdAndUpdate(freelancerId, {
+        $inc: { 
+          completedJobsCount: 1,
+          totalEarnings: finalAmount || job.budgetAmount,
+          activeProposalsCount: -1
+        }
+      });
+
+      return job;
+    } catch (error) {
+      throw new Error(`Failed to complete job: ${error.message}`);
     }
   }
 }
