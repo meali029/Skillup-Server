@@ -18,6 +18,7 @@ import session from "express-session";
 import passport, { initializePassport } from "./config/passport.js";
 import createAuthRoutes from "./modules/auth/auth.routes.js";
 import jobRoutes from "./modules/jobs/job.routes.js";
+import proposalRoutes from "./modules/proposals/proposal.routes.js";
 import { errorHandler } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 
@@ -59,6 +60,7 @@ app.use(cors({
 // API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobRoutes);
+app.use("/api/proposals", proposalRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => res.json({ 
