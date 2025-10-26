@@ -25,10 +25,21 @@ const userSchema = new mongoose.Schema({
     image: String 
   }],
   
+  // Freelancer job statistics
+  appliedJobsCount: { type: Number, default: 0, min: 0 },
+  activeProposalsCount: { type: Number, default: 0, min: 0 },
+  completedJobsCount: { type: Number, default: 0, min: 0 },
+  totalEarnings: { type: Number, default: 0, min: 0 },
+  
   // Client specific fields
   companyName: { type: String },
   companySize: { type: String, enum: ["1-10", "11-50", "51-200", "201-500", "500+"] },
   industry: { type: String },
+  
+  // Client job statistics
+  postedJobsCount: { type: Number, default: 0, min: 0 },
+  activeJobsCount: { type: Number, default: 0, min: 0 },
+  totalSpent: { type: Number, default: 0, min: 0 },
   
   // Profile completion and verification
   isProfileComplete: { type: Boolean, default: false },
