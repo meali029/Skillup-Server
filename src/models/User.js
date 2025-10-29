@@ -1,9 +1,13 @@
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true },
-  password: { type: String }, // hashed (for email/password users) - not required for Google OAuth
+  password: { 
+    type: String, 
+    select: false // Don't return password by default
+  }, // hashed (for email/password users) - not required for Google OAuth
   googleId: { type: String }, // Google OAuth ID
   avatar: { type: String },
   role: { type: String, enum: ["freelancer", "client", "admin"] }, // Not required - user selects during profile completion
@@ -53,8 +57,18 @@ const userSchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-userSchema.pre('save', function(next) {
+userSchema.pre('save', async function(next) {
   this.updatedAt = new Date();
+  
+  // Hash password if it's modified or new
+  if (this.isModified('password') && this.password) {
+    try {
+      const salt = await bcrypt.genSalt(10);
+      this.password = await bcrypt.hash(this.password, salt);
+    } catch (error) {
+      return next(error);
+    }
+  }
   
   // Auto-calculate isProfileComplete if not explicitly set to false
   if (this.isModified('role') || this.isModified('skills') || this.isModified('hourlyRate') || 
@@ -83,6 +97,30 @@ userSchema.methods.checkProfileComplete = function() {
   }
   
   return false;
+};
+
+// Method to compare passwords
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  try {
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    throw new Error('Password comparison failed');
+  }
+};
+
+// Method to generate auth token (convenience method)
+userSchema.methods.generateAuthToken = function() {
+  const jwt = require('jsonwebtoken');
+  const token = jwt.sign(
+    { 
+      id: this._id, 
+      email: this.email, 
+      role: this.role 
+    },
+    process.env.JWT_SECRET || 'your-secret-key',
+    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+  );
+  return token;
 };
 
 export default mongoose.models.User || mongoose.model("User", userSchema);
