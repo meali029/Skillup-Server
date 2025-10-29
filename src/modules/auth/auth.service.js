@@ -15,15 +15,11 @@ export const registerLocal = async ({ name, email, password, role }) => {
     throw new AppError("Email already registered", 400);
   }
 
-  // Hash password
-  const salt = await bcrypt.genSalt(10);
-  const hashed = await bcrypt.hash(password, salt);
-
-  // Prepare user data
+  // Prepare user data (password will be hashed by the pre-save hook)
   const userData = {
     name,
     email,
-    password: hashed,
+    password, // Will be hashed by pre-save hook
     role: role || undefined, // undefined allows user to select role later
     provider: "local"
   };
@@ -134,13 +130,15 @@ export const completeProfile = async (userId, profileData) => {
  * @returns {Object} User and token
  */
 export const loginLocal = async ({ email, password }) => {
-  const user = await User.findOne({ email });
+  // Select password field explicitly since it's set to select: false in schema
+  const user = await User.findOne({ email }).select('+password');
   
   if (!user || user.provider !== "local") {
     throw new AppError("Invalid credentials", 401);
   }
   
-  const isPasswordValid = await bcrypt.compare(password, user.password);
+  // Use the comparePassword method from the model
+  const isPasswordValid = await user.comparePassword(password);
   
   if (!isPasswordValid) {
     throw new AppError("Invalid credentials", 401);
