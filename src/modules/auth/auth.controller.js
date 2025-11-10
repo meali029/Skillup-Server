@@ -1,173 +1,189 @@
 import { registerLocal, loginLocal, completeProfile as completeProfileService } from "./auth.service.js";
-import jwt from "jsonwebtoken";
+import { asyncHandler, successResponse } from "../../core/utils/index.js";
+import { AppError } from "../../core/errors/index.js";
+import { UserDTO } from "../shared/dtos/index.js";
+import { TokenService } from "../shared/services/index.js";
+import User from "../../models/User.js";
 
-const createToken = (user) => {
-  return jwt.sign(
-    { id: user._id, email: user.email, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
+/**
+ * Register a new user
+ * @route POST /api/auth/register
+ */
+export const register = asyncHandler(async (req, res) => {
+  // Use validated data from middleware
+  const { name, email, password, role } = req.validatedData;
+
+  const { user, token } = await registerLocal({ name, email, password, role });
+  
+  // Set cookie and return response
+  res.cookie("token", token, TokenService.getCookieOptions());
+  
+  successResponse(
+    res,
+    {
+      user: new UserDTO(user),
+      token
+    },
+    "Registration successful",
+    201
   );
-};
+});
 
-const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.COOKIE_SECURE === "true",
-  sameSite: "lax",
-  maxAge: 1000 * 60 * 60 * 24 * 1 // 1 day
-};
+/**
+ * Login user
+ * @route POST /api/auth/login
+ */
+export const login = asyncHandler(async (req, res) => {
+  // Use validated data from middleware
+  const { email, password } = req.validatedData;
+  
+  const { user, token } = await loginLocal({ email, password });
+  
+  // Set cookie and return response
+  res.cookie("token", token, TokenService.getCookieOptions());
+  
+  successResponse(
+    res,
+    {
+      user: new UserDTO(user),
+      token
+    },
+    "Login successful"
+  );
+});
 
-export const register = async (req, res) => {
-  try {
-    const { 
-      name, 
-      email, 
-      password, 
-      role,
-      // Additional profile data
-      bio,
-      location,
-      phone,
-      // Freelancer specific
-      skills,
-      hourlyRate,
-      experience,
-      // Client specific  
-      companyName,
-      companySize,
-      industry
-    } = req.body;
 
-    // Prepare additional data based on role
-    const additionalData = {
-      bio,
-      location, 
-      phone
-    };
-
-    if (role === "freelancer") {
-      additionalData.skills = skills;
-      additionalData.hourlyRate = hourlyRate;
-      additionalData.experience = experience;
-    } else if (role === "client") {
-      additionalData.companyName = companyName;
-      additionalData.companySize = companySize;
-      additionalData.industry = industry;
-    }
-
-    const { user, token } = await registerLocal({ 
-      name, 
-      email, 
-      password, 
-      role, 
-      additionalData 
-    });
-    
-    // Set both cookie (for fallback/server-side) and return token in response
-    res.cookie("token", token, cookieOptions)
-       .status(201)
-       .json({ 
-         user: { 
-           id: user._id, 
-           name: user.name, 
-           email: user.email, 
-           role: user.role,
-           isProfileComplete: user.isProfileComplete,
-           bio: user.bio,
-           location: user.location,
-           phone: user.phone,
-           skills: user.skills,
-           hourlyRate: user.hourlyRate,
-           experience: user.experience,
-           companyName: user.companyName,
-           companySize: user.companySize,
-           industry: user.industry
-         },
-         token: token
-       });
-  } catch (err) {
-    res.status(400).json({ error: err.message || "Registration failed" });
-  }
-};
-
-export const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const { user, token } = await loginLocal({ email, password });
-    
-    // Set both cookie (for fallback/server-side) and return token in response
-    res.cookie("token", token, cookieOptions)
-       .json({ 
-         user: { 
-           id: user._id, 
-           name: user.name, 
-           email: user.email,
-           role: user.role,
-           isProfileComplete: user.isProfileComplete
-         },
-         token: token
-       });
-  } catch (err) {
-    res.status(401).json({ error: err.message || "Login failed" });
-  }
-};
-
-// Google OAuth callback - called by Passport after successful authentication
-export const googleCallback = async (req, res) => {
-  try {
-    if (!req.user) {
-      console.error("Google OAuth: No user object received");
-      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5174'}/login?error=authentication_failed`);
-    }
-    
-    console.log("Google OAuth successful for user:", req.user.email);
-    
-    const token = createToken(req.user);
-    res.cookie("token", token, cookieOptions);
-    
-    // Check if profile is complete
-    const isProfileComplete = req.user.isProfileComplete && req.user.role;
-    
-    // Redirect to client's Google callback handler with token
+/**
+ * Google OAuth callback
+ * @route GET /api/auth/google/callback
+ */
+export const googleCallback = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    console.error("Google OAuth: No user object received");
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
-    
-    if (!isProfileComplete) {
-      // Profile incomplete - redirect to complete profile page
-      res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
-    } else {
-      // Profile complete - redirect to dashboard
-      res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&success=true`);
+    return res.redirect(`${clientUrl}/login?error=authentication_failed`);
+  }
+  
+  console.log("Google OAuth successful for user:", req.user.email);
+  
+  const token = TokenService.generateToken(req.user);
+  res.cookie("token", token, TokenService.getCookieOptions());
+  
+  // Check if profile is complete
+  const isProfileComplete = req.user.isProfileComplete && req.user.role;
+  
+  // Redirect to client's Google callback handler with token
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
+  
+  if (!isProfileComplete) {
+    // Profile incomplete - redirect to complete profile page
+    res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
+  } else {
+    // Profile complete - redirect to dashboard
+    res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&success=true`);
+  }
+});
+
+/**
+ * Complete user profile
+ * @route POST/PUT /api/auth/complete-profile
+ */
+export const completeProfile = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const profileData = req.body;
+
+  console.log('Complete Profile Request:', {
+    userId,
+    profileData,
+    role: profileData.role
+  });
+
+  // Validate required fields
+  if (!profileData.role) {
+    throw new AppError('Role is required', 400);
+  }
+
+  if (!['freelancer', 'client'].includes(profileData.role)) {
+    throw new AppError('Role must be either freelancer or client', 400);
+  }
+
+  // Role-specific validation
+  if (profileData.role === 'freelancer') {
+    if (!profileData.skills || profileData.skills.length === 0) {
+      throw new AppError('At least one skill is required for freelancers', 400);
     }
-  } catch (err) {
-    console.error("Google OAuth callback error:", err);
-    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5174'}/login?error=server_error`);
+    if (!profileData.hourlyRate) {
+      throw new AppError('Hourly rate is required for freelancers', 400);
+    }
+    if (!profileData.experience) {
+      throw new AppError('Experience level is required for freelancers', 400);
+    }
+  } else if (profileData.role === 'client') {
+    if (!profileData.companyName) {
+      throw new AppError('Company name is required for clients', 400);
+    }
+    if (!profileData.companySize) {
+      throw new AppError('Company size is required for clients', 400);
+    }
+    if (!profileData.industry) {
+      throw new AppError('Industry is required for clients', 400);
+    }
   }
-};
 
-export const completeProfile = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const profileData = req.body;
+  const user = await completeProfileService(userId, profileData);
 
-    const user = await completeProfileService(userId, profileData);
+  console.log('Profile completed successfully:', {
+    userId: user._id,
+    role: user.role,
+    isProfileComplete: user.isProfileComplete
+  });
 
-    // Return user without password
-    const userObject = user.toObject();
-    delete userObject.password;
+  successResponse(
+    res,
+    { user: new UserDTO(user) },
+    'Profile completed successfully'
+  );
+});
 
-    res.json({ user: userObject, message: 'Profile completed successfully' });
-  } catch (err) {
-    console.error('Profile completion error:', err);
-    res.status(400).json({ error: err.message });
+/**
+ * Logout user
+ * @route POST /api/auth/logout
+ */
+export const logout = asyncHandler(async (req, res) => {
+  res.clearCookie("token", { 
+    httpOnly: true, 
+    sameSite: "lax" 
+  });
+  
+  successResponse(res, null, "Logged out successfully");
+});
+
+/**
+ * Get current user
+ * @route GET /api/auth/me
+ */
+export const me = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new AppError("Not authenticated", 401);
   }
-};
+  
+  // Fetch complete user data from database
+  const user = await User.findById(req.user.id).select('-password');
+  
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+  
+  console.log('/me endpoint - User data:', {
+    id: user._id,
+    role: user.role,
+    isProfileComplete: user.isProfileComplete
+  });
+  
+  successResponse(
+    res,
+    { user: new UserDTO(user) },
+    "User retrieved successfully"
+  );
+});
 
-export const logout = (req, res) => {
-  res.clearCookie("token", { httpOnly: true, sameSite: "lax" }).json({ ok: true });
-};
-
-export const me = async (req, res) => {
-  // authMiddleware should have set req.user
-  const user = req.user;
-  if (!user) return res.status(401).json({ error: "Not authenticated" });
-  res.json({ user });
-};

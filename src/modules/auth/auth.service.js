@@ -1,84 +1,68 @@
 import User from "../../models/User.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import { AppError } from "../../core/errors/index.js";
+import { TokenService } from "../shared/services/index.js";
 
-const createToken = (user) => {
-  return jwt.sign(
-    { id: user._id, email: user.email, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
-  );
-};
-
-export const registerLocal = async ({ name, email, password, role, additionalData = {} }) => {
-  // Validate required fields
-  if (!name || !email || !password) {
-    throw new Error("Name, email, and password are required");
-  }
-
-  // Validate role if provided
-  if (role && !["freelancer", "client"].includes(role)) {
-    throw new Error("Invalid role. Must be 'freelancer' or 'client'");
-  }
-
-  // Check if user already exists
+/**
+ * Register a new user with local authentication
+ * @param {Object} userData - User registration data
+ * @returns {Object} User and token
+ */
+export const registerLocal = async ({ name, email, password, role }) => {
+  // Check for existing user
   const exists = await User.findOne({ email });
-  if (exists) throw new Error("Email already registered");
+  if (exists) {
+    throw new AppError("Email already registered", 400);
+  }
 
-  // Hash password
-  const salt = await bcrypt.genSalt(10);
-  const hashed = await bcrypt.hash(password, salt);
-
-  // Prepare user data
+  // Prepare user data (password will be hashed by the pre-save hook)
   const userData = {
     name,
     email,
-    password: hashed,
-    role: role || null, // Allow null role for later completion
-    provider: "local",
-    ...additionalData
+    password, // Will be hashed by pre-save hook
+    role: role || undefined, // undefined allows user to select role later
+    provider: "local"
   };
-
-  // Role-specific validations
-  if (role === "client" && additionalData.companyName) {
-    userData.companyName = additionalData.companyName;
-    userData.companySize = additionalData.companySize;
-    userData.industry = additionalData.industry;
-  }
-
-  if (role === "freelancer") {
-    userData.skills = additionalData.skills || [];
-    userData.experience = additionalData.experience;
-    userData.hourlyRate = additionalData.hourlyRate;
-  }
 
   // Create user
   const user = await User.create(userData);
   
   // Profile completion will be auto-calculated by the pre-save hook
-  // But we can explicitly set it here for clarity - ensure it's a boolean
   const isComplete = Boolean(user.checkProfileComplete());
   if (user.isProfileComplete !== isComplete) {
     user.isProfileComplete = isComplete;
     await user.save();
   }
   
-  const token = createToken(user);
+  const token = TokenService.generateToken(user);
   
   return { user, token };
 };
 
+
+/**
+ * Complete user profile after registration
+ * @param {String} userId - User ID
+ * @param {Object} profileData - Profile completion data
+ * @returns {Object} Updated user
+ */
 export const completeProfile = async (userId, profileData) => {
   const { role, bio, location, phone, skills, hourlyRate, experience, companyName, companySize, industry } = profileData;
 
+  console.log('completeProfile service called:', { userId, role });
+
   const user = await User.findById(userId);
   if (!user) {
-    throw new Error('User not found');
+    console.error('User not found:', userId);
+    throw new AppError('User not found', 404);
   }
+
+  console.log('User found:', { id: user._id, email: user.email, currentRole: user.role });
 
   // Validate role
   if (!role || !['freelancer', 'client'].includes(role)) {
-    throw new Error('Valid role (freelancer or client) is required');
+    console.error('Invalid role:', role);
+    throw new AppError('Valid role (freelancer or client) is required', 400);
   }
 
   // Update basic fields
@@ -87,11 +71,19 @@ export const completeProfile = async (userId, profileData) => {
   if (location !== undefined) user.location = location;
   if (phone !== undefined) user.phone = phone;
 
+  console.log('Basic fields updated');
+
   // Update role-specific fields
   if (role === 'freelancer') {
     user.skills = skills || [];
     user.hourlyRate = hourlyRate;
     user.experience = experience;
+    
+    console.log('Freelancer fields set:', { 
+      skillsCount: user.skills.length, 
+      hourlyRate: user.hourlyRate, 
+      experience: user.experience 
+    });
     
     // Clear client fields by setting to undefined
     user.companyName = undefined;
@@ -101,6 +93,12 @@ export const completeProfile = async (userId, profileData) => {
     user.companyName = companyName;
     user.companySize = companySize;
     user.industry = industry;
+    
+    console.log('Client fields set:', { 
+      companyName: user.companyName, 
+      companySize: user.companySize, 
+      industry: user.industry 
+    });
     
     // Clear freelancer fields
     user.skills = [];
@@ -112,17 +110,42 @@ export const completeProfile = async (userId, profileData) => {
   const isComplete = Boolean(user.checkProfileComplete());
   user.isProfileComplete = isComplete;
 
+  console.log('Profile completion checked:', isComplete);
+
   // Save with validation
-  await user.save();
+  try {
+    await user.save();
+    console.log('User saved successfully');
+  } catch (error) {
+    console.error('Error saving user:', error);
+    throw new AppError(`Failed to save profile: ${error.message}`, 500);
+  }
 
   return user;
 };
 
+/**
+ * Login user with local authentication
+ * @param {Object} credentials - Login credentials
+ * @returns {Object} User and token
+ */
 export const loginLocal = async ({ email, password }) => {
-  const user = await User.findOne({ email });
-  if (!user || user.provider !== "local") throw new Error("Invalid credentials");
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) throw new Error("Invalid credentials");
-  const token = createToken(user);
+  // Select password field explicitly since it's set to select: false in schema
+  const user = await User.findOne({ email }).select('+password');
+  
+  if (!user || user.provider !== "local") {
+    throw new AppError("Invalid credentials", 401);
+  }
+  
+  // Use the comparePassword method from the model
+  const isPasswordValid = await user.comparePassword(password);
+  
+  if (!isPasswordValid) {
+    throw new AppError("Invalid credentials", 401);
+  }
+  
+  const token = TokenService.generateToken(user);
+  
   return { user, token };
 };
+

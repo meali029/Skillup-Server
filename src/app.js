@@ -17,6 +17,10 @@ import cors from "cors";
 import session from "express-session";
 import passport, { initializePassport } from "./config/passport.js";
 import createAuthRoutes from "./modules/auth/auth.routes.js";
+import jobRoutes from "./modules/jobs/job.routes.js";
+import proposalRoutes from "./modules/proposals/proposal.routes.js";
+import { errorHandler } from "./core/errors/index.js";
+import { AppError } from "./core/errors/index.js";
 
 // Initialize passport with loaded environment variables
 initializePassport();
@@ -26,9 +30,11 @@ const authRoutes = createAuthRoutes();
 
 const app = express();
 
+// Body parser middleware
 app.use(express.json());
 app.use(cookieParser());
 
+// Session middleware
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-super-secret-session-key-change-in-production-min-32-chars',
   resave: false,
@@ -41,16 +47,34 @@ app.use(session({
   }
 }));
 
+// Passport middleware
 app.use(passport.initialize());
 app.use(passport.session());
 
+// CORS middleware
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:5174"],
+  origin: process.env.CLIENT_URL || "http://localhost:5173",
   credentials: true
 }));
 
+// API Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/jobs", jobRoutes);
+app.use("/api/proposals", proposalRoutes);
 
-app.get("/api/health", (req, res) => res.json({status: "ok"}));
+// Health check
+app.get("/api/health", (req, res) => res.json({ 
+  success: true, 
+  message: "Server is running",
+  timestamp: new Date().toISOString()
+}));
+
+// 404 handler - must be after all routes
+app.all('*', (req, res, next) => {
+  next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
+});
+
+// Global error handling middleware - must be last
+app.use(errorHandler);
 
 export default app;
