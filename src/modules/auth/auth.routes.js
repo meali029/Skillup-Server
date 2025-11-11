@@ -23,6 +23,18 @@ function createAuthRoutes() {
   router.post("/complete-profile", authenticate, completeProfile);
   router.put("/complete-profile", authenticate, completeProfile);
 
+  // Debug endpoint to verify OAuth configuration
+  router.get("/oauth-config", (req, res) => {
+    res.json({
+      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      clientIdPrefix: process.env.GOOGLE_CLIENT_ID?.substring(0, 20) + "...",
+      callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:5000/api/auth/google/callback",
+      clientURL: process.env.CLIENT_URL || "http://localhost:5174",
+      nodeEnv: process.env.NODE_ENV
+    });
+  });
+
   // Google OAuth routes - only if Google credentials are available
   const clientURL = process.env.CLIENT_URL || "http://localhost:5174";
   
@@ -32,9 +44,30 @@ function createAuthRoutes() {
     );
 
     router.get("/google/callback",
+      (req, res, next) => {
+        console.log("📥 Incoming Google callback:");
+        console.log("   Query params:", req.query);
+        console.log("   Headers origin:", req.headers.origin);
+        console.log("   Session ID:", req.sessionID);
+        next();
+      },
       passport.authenticate("google", { 
         failureRedirect: `${clientURL}/login?error=authentication_failed`
       }),
+      (err, req, res, next) => {
+        // Custom error handler for passport authentication
+        if (err) {
+          console.error("❌ Passport authentication error:", err.message);
+          console.error("   Stack:", err.stack);
+          return res.status(500).json({
+            success: false,
+            status: 500,
+            message: "Unauthorized",
+            debug: process.env.NODE_ENV === 'development' ? err.message : undefined
+          });
+        }
+        next(err);
+      },
       googleCallback
     );
   } else {
