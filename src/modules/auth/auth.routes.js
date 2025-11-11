@@ -49,25 +49,13 @@ function createAuthRoutes() {
         console.log("   Query params:", req.query);
         console.log("   Headers origin:", req.headers.origin);
         console.log("   Session ID:", req.sessionID);
+        console.log("   Code present:", !!req.query.code);
         next();
       },
       passport.authenticate("google", { 
-        failureRedirect: `${clientURL}/login?error=authentication_failed`
+        failureRedirect: `${clientURL}/login?error=authentication_failed`,
+        session: true
       }),
-      (err, req, res, next) => {
-        // Custom error handler for passport authentication
-        if (err) {
-          console.error("❌ Passport authentication error:", err.message);
-          console.error("   Stack:", err.stack);
-          return res.status(500).json({
-            success: false,
-            status: 500,
-            message: "Unauthorized",
-            debug: process.env.NODE_ENV === 'development' ? err.message : undefined
-          });
-        }
-        next(err);
-      },
       googleCallback
     );
   } else {
