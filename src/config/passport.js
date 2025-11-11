@@ -6,16 +6,26 @@ import User from '../models/User.js';
 export function initializePassport() {
   // Only configure Google strategy if environment variables are available
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    console.log("🔑 Initializing Google OAuth Strategy:");
+    console.log("   Client ID:", process.env.GOOGLE_CLIENT_ID?.substring(0, 20) + "...");
+    console.log("   Callback URL:", process.env.GOOGLE_CALLBACK_URL || "http://localhost:5000/api/auth/google/callback");
+    
     passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:5000/api/auth/google/callback"
     }, async (accessToken, refreshToken, profile, done) => {
       try {
+        console.log("🔐 Google OAuth Strategy Verify Callback:");
+        console.log("   Profile ID:", profile.id);
+        console.log("   Email:", profile.emails?.[0]?.value);
+        console.log("   Name:", profile.displayName);
+        
         // Check if user already exists with this Google ID
         let user = await User.findOne({ googleId: profile.id });
         
         if (user) {
+          console.log("✅ Found existing user with Google ID");
           return done(null, user);
         }
         
@@ -23,6 +33,7 @@ export function initializePassport() {
         user = await User.findOne({ email: profile.emails[0].value });
         
         if (user) {
+          console.log("✅ Found user with matching email, linking Google account");
           // Link Google account to existing user
           user.googleId = profile.id;
           user.provider = 'google';
@@ -32,6 +43,7 @@ export function initializePassport() {
         }
         
         // Create new user with basic info - no role yet
+        console.log("🆕 Creating new user from Google profile");
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
@@ -43,14 +55,16 @@ export function initializePassport() {
           isProfileComplete: false
         });
         
+        console.log("✅ New user created successfully");
         return done(null, user);
       } catch (error) {
-        console.error('Google OAuth error:', error);
+        console.error('❌ Google OAuth Strategy Error:', error.message);
+        console.error('   Stack:', error.stack);
         return done(error, null);
       }
     }));
   } else {
-    console.warn('Google OAuth credentials not found. Google authentication will be disabled.');
+    console.warn('⚠️  Google OAuth credentials not found. Google authentication will be disabled.');
   }
 
   // Serialize user for session
