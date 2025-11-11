@@ -33,8 +33,7 @@ function createAuthRoutes() {
 
     router.get("/google/callback",
       passport.authenticate("google", { 
-        failureRedirect: `${clientURL}/login?error=authentication_failed`,
-        session: false 
+        failureRedirect: `${clientURL}/login?error=authentication_failed`
       }),
       googleCallback
     );
