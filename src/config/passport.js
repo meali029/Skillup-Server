@@ -81,10 +81,6 @@ export function initializePassport() {
         
         return done(error, null);
       }
-        console.error('❌ Google OAuth Strategy Error:', error.message);
-        console.error('   Stack:', error.stack);
-        return done(error, null);
-      }
     }));
   } else {
     console.warn('⚠️  Google OAuth credentials not found. Google authentication will be disabled.');
