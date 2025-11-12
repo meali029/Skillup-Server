@@ -21,7 +21,13 @@ export function initializePassport() {
         console.log("   Email:", profile.emails?.[0]?.value);
         console.log("   Name:", profile.displayName);
         
+        if (!profile.emails || !profile.emails[0] || !profile.emails[0].value) {
+          console.error("❌ No email in Google profile");
+          return done(new Error("No email provided by Google"), null);
+        }
+        
         // Check if user already exists with this Google ID
+        console.log("🔍 Checking for existing user with Google ID...");
         let user = await User.findOne({ googleId: profile.id });
         
         if (user) {
@@ -30,6 +36,7 @@ export function initializePassport() {
         }
         
         // Check if user exists with same email
+        console.log("🔍 Checking for user with email:", profile.emails[0].value);
         user = await User.findOne({ email: profile.emails[0].value });
         
         if (user) {
@@ -39,6 +46,7 @@ export function initializePassport() {
           user.provider = 'google';
           user.avatar = profile.photos[0]?.value || '';
           await user.save();
+          console.log("✅ Google account linked successfully");
           return done(null, user);
         }
         
@@ -58,6 +66,21 @@ export function initializePassport() {
         console.log("✅ New user created successfully");
         return done(null, user);
       } catch (error) {
+        console.error('❌ Google OAuth Strategy Error:', error.message);
+        console.error('   Error name:', error.name);
+        console.error('   Stack:', error.stack);
+        
+        // Check for specific error types
+        if (error.name === 'MongoError' || error.name === 'MongoServerError') {
+          console.error('   MongoDB Error Code:', error.code);
+        }
+        
+        if (error.name === 'ValidationError') {
+          console.error('   Validation Errors:', Object.keys(error.errors));
+        }
+        
+        return done(error, null);
+      }
         console.error('❌ Google OAuth Strategy Error:', error.message);
         console.error('   Stack:', error.stack);
         return done(error, null);
