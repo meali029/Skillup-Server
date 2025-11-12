@@ -59,12 +59,9 @@ export const login = asyncHandler(async (req, res) => {
  */
 export const googleCallback = asyncHandler(async (req, res) => {
   if (!req.user) {
-    console.error("Google OAuth: No user object received");
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
     return res.redirect(`${clientUrl}/login?error=authentication_failed`);
   }
-  
-  console.log("Google OAuth successful for user:", req.user.email);
   
   const token = TokenService.generateToken(req.user);
   res.cookie("token", token, TokenService.getCookieOptions());
@@ -91,12 +88,6 @@ export const googleCallback = asyncHandler(async (req, res) => {
 export const completeProfile = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const profileData = req.body;
-
-  console.log('Complete Profile Request:', {
-    userId,
-    profileData,
-    role: profileData.role
-  });
 
   // Validate required fields
   if (!profileData.role) {
@@ -131,12 +122,6 @@ export const completeProfile = asyncHandler(async (req, res) => {
   }
 
   const user = await completeProfileService(userId, profileData);
-
-  console.log('Profile completed successfully:', {
-    userId: user._id,
-    role: user.role,
-    isProfileComplete: user.isProfileComplete
-  });
 
   successResponse(
     res,
@@ -174,16 +159,9 @@ export const me = asyncHandler(async (req, res) => {
     throw new AppError("User not found", 404);
   }
   
-  console.log('/me endpoint - User data:', {
-    id: user._id,
-    role: user.role,
-    isProfileComplete: user.isProfileComplete
-  });
-  
   successResponse(
     res,
     { user: new UserDTO(user) },
     "User retrieved successfully"
   );
 });
-
