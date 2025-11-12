@@ -45,42 +45,24 @@ function createAuthRoutes() {
 
     router.get("/google/callback",
       (req, res, next) => {
-        console.log("📥 Incoming Google callback:");
-        console.log("   Query params:", req.query);
-        console.log("   Headers origin:", req.headers.origin);
-        console.log("   Session ID:", req.sessionID);
-        console.log("   Code present:", !!req.query.code);
-        next();
-      },
-      (req, res, next) => {
         passport.authenticate("google", { 
           failureRedirect: `${clientURL}/login?error=authentication_failed`,
           session: true
         }, (err, user, info) => {
           // Custom callback to catch errors
           if (err) {
-            console.error("❌ Passport authenticate error:", err);
-            console.error("   Error message:", err.message);
-            console.error("   Error stack:", err.stack);
             return next(err);
           }
           
           if (!user) {
-            console.error("❌ No user returned from passport");
-            console.error("   Info:", info);
             return res.redirect(`${clientURL}/login?error=authentication_failed`);
           }
-          
-          console.log("✅ Passport authentication successful");
-          console.log("   User:", user.email);
           
           // Manually login the user
           req.logIn(user, (err) => {
             if (err) {
-              console.error("❌ req.logIn error:", err);
               return next(err);
             }
-            console.log("✅ User logged in to session");
             next();
           });
         })(req, res, next);
