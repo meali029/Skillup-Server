@@ -17,6 +17,13 @@ const userSchema = new mongoose.Schema({
   bio: { type: String, maxlength: 500 },
   location: { type: String },
   phone: { type: String },
+  website: { type: String },
+  languages: [{ type: String }],
+  availability: { 
+    type: String, 
+    enum: ["available", "busy", "not-available"],
+    default: "available"
+  },
   
   // Freelancer specific fields
   skills: [{ type: String }],
