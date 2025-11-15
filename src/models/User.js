@@ -95,12 +95,47 @@ userSchema.pre('save', async function(next) {
 userSchema.methods.checkProfileComplete = function() {
   const hasBasicInfo = this.name && this.email && this.role;
   
-  if (!hasBasicInfo) return false;
+  if (!hasBasicInfo) {
+    console.log('❌ Profile incomplete: Missing basic info (name/email/role)');
+    return false;
+  }
   
   if (this.role === 'freelancer') {
-    return this.skills && this.skills.length > 0 && this.hourlyRate && this.experience;
+    // Freelancer needs: skills (at least 1), hourly rate, and experience
+    const hasFreelancerInfo = Boolean(
+      this.skills && 
+      this.skills.length > 0 && 
+      this.hourlyRate && 
+      this.hourlyRate > 0 &&
+      this.experience
+    );
+    
+    if (!hasFreelancerInfo) {
+      console.log('❌ Freelancer profile incomplete:', {
+        hasSkills: this.skills && this.skills.length > 0,
+        hasHourlyRate: Boolean(this.hourlyRate && this.hourlyRate > 0),
+        hasExperience: Boolean(this.experience)
+      });
+    }
+    
+    return hasFreelancerInfo;
   } else if (this.role === 'client') {
-    return this.companyName && this.companySize && this.industry;
+    // Client needs: company name, company size, and industry
+    const hasClientInfo = Boolean(
+      this.companyName && 
+      this.companySize &&
+      this.industry
+    );
+    
+    if (!hasClientInfo) {
+      console.log('❌ Client profile incomplete:', {
+        hasCompanyName: Boolean(this.companyName),
+        hasCompanySize: Boolean(this.companySize),
+        hasIndustry: Boolean(this.industry)
+      });
+    }
+    
+    return hasClientInfo;
   }
   
   return false;

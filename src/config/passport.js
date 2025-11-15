@@ -20,6 +20,12 @@ export function initializePassport() {
         let user = await User.findOne({ googleId: profile.id });
         
         if (user) {
+          console.log('🔍 Google OAuth: Existing user found (Google ID):', {
+            userId: user._id,
+            email: user.email,
+            role: user.role,
+            isProfileComplete: user.isProfileComplete
+          });
           return done(null, user);
         }
         
@@ -28,14 +34,25 @@ export function initializePassport() {
         
         if (user) {
           // Link Google account to existing user
+          console.log('🔗 Google OAuth: Linking Google to existing email account');
           user.googleId = profile.id;
           user.provider = 'google';
           user.avatar = profile.photos[0]?.value || '';
           await user.save();
+          
+          console.log('✅ Google OAuth: Account linked:', {
+            userId: user._id,
+            email: user.email,
+            role: user.role,
+            isProfileComplete: user.isProfileComplete
+          });
+          
           return done(null, user);
         }
         
-        // Create new user with basic info - no role yet
+        // Create new user with basic info - ALWAYS incomplete profile
+        console.log('📝 Google OAuth: Creating NEW user (no role yet)');
+        
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
@@ -43,8 +60,15 @@ export function initializePassport() {
           avatar: profile.photos[0]?.value || '',
           provider: 'google',
           isEmailVerified: true, // Google emails are pre-verified
-          // role is omitted - user will select during profile completion
-          isProfileComplete: false
+          // role is omitted - user MUST select during profile completion
+          isProfileComplete: false // ALWAYS false for new Google users
+        });
+        
+        console.log('✅ Google OAuth: New user created (profile incomplete):', {
+          userId: user._id,
+          email: user.email,
+          hasRole: Boolean(user.role),
+          isProfileComplete: user.isProfileComplete
         });
         
         return done(null, user);

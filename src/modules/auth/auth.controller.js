@@ -6,9 +6,10 @@ import { TokenService } from "../shared/services/index.js";
 import User from "../../models/User.js";
 
 export const register = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.validatedData;
+  // Extract all possible registration fields from validatedData or body
+  const registrationData = req.validatedData || req.body;
 
-  const { user, token } = await registerLocal({ name, email, password, role });
+  const { user, token } = await registerLocal(registrationData);
   
   res.cookie("token", token, TokenService.getCookieOptions());
   
@@ -16,7 +17,8 @@ export const register = asyncHandler(async (req, res) => {
     res,
     {
       user: formatUser(user),
-      token
+      token,
+      isProfileComplete: user.isProfileComplete
     },
     "Registration successful",
     201
@@ -64,6 +66,7 @@ export const completeProfile = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const profileData = req.body;
 
+  // Validate required fields
   if (!profileData.role) {
     throw new AppError('Role is required', 400);
   }
@@ -94,12 +97,24 @@ export const completeProfile = asyncHandler(async (req, res) => {
     }
   }
 
-  const user = await completeProfileService(userId, profileData);
+  // Complete profile
+  const updatedUser = await completeProfileService(userId, profileData);
+  
+  // Verify the user was updated correctly
+  const verifiedUser = await User.findById(userId).select('-password');
+
+  // Generate new token with updated user data
+  const token = TokenService.generateToken(verifiedUser);
 
   successResponse(
     res,
-    { user: formatUser(user) },
-    'Profile completed successfully'
+    { 
+      user: formatUser(verifiedUser),
+      token, // Send new token with updated claims
+      isProfileComplete: verifiedUser.isProfileComplete 
+    },
+    'Profile completed successfully',
+    200
   );
 });
 
