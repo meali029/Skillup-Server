@@ -7,23 +7,16 @@ import {
   validateLogin
 } from "./auth.validation.js";
 
-/**
- * Auth Routes
- * Handles all authentication-related endpoints
- */
 function createAuthRoutes() {
   const router = express.Router();
 
-  // Local authentication routes
   router.post("/register", validateRegister, register);
   router.post("/login", validateLogin, login);
   router.post("/logout", logout);
   router.get("/me", authenticate, me);
-  // Accept both POST and PUT for complete-profile for backward compatibility
   router.post("/complete-profile", authenticate, completeProfile);
   router.put("/complete-profile", authenticate, completeProfile);
 
-  // Debug endpoint to verify OAuth configuration
   router.get("/oauth-config", (req, res) => {
     res.json({
       hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
@@ -35,7 +28,6 @@ function createAuthRoutes() {
     });
   });
 
-  // Google OAuth routes - only if Google credentials are available
   const clientURL = process.env.CLIENT_URL || "http://localhost:5174";
   
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
@@ -49,7 +41,6 @@ function createAuthRoutes() {
           failureRedirect: `${clientURL}/login?error=authentication_failed`,
           session: true
         }, (err, user, info) => {
-          // Custom callback to catch errors
           if (err) {
             return next(err);
           }
@@ -58,7 +49,6 @@ function createAuthRoutes() {
             return res.redirect(`${clientURL}/login?error=authentication_failed`);
           }
           
-          // Manually login the user
           req.logIn(user, (err) => {
             if (err) {
               return next(err);
@@ -70,7 +60,6 @@ function createAuthRoutes() {
       googleCallback
     );
   } else {
-    // Fallback routes when Google OAuth is not configured
     router.get("/google", (req, res) => {
       res.status(503).json({ 
         success: false, 

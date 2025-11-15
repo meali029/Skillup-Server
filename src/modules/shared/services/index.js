@@ -1,1 +1,1 @@
-export { default as TokenService } from './TokenService.js';
+export * as TokenService from './TokenService.js';

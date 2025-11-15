@@ -1,14 +1,13 @@
-// Load environment variables FIRST before any other imports
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import MongoStore from "connect-mongo";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-// Load .env file synchronously before any other imports
+
 const envPath = join(__dirname, "..", ".env");
 dotenv.config({ path: envPath });
-// Now import other modules after env vars are loaded
+
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -20,19 +19,19 @@ import proposalRoutes from "./modules/proposals/proposal.routes.js";
 import createProfileRoutes from "./modules/profile/profile.routes.js";
 import { errorHandler } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
-// Initialize passport with loaded environment variables
+
 initializePassport();
-// Create auth routes after environment variables are loaded
+
 const authRoutes = createAuthRoutes();
 const profileRoutes = createProfileRoutes();
+
 const app = express();
-// Serve static files from uploads directory
+
 app.use("/uploads", express.static(join(__dirname, "../uploads")));
-// Body parser middleware
+
 app.use(express.json());
 app.use(cookieParser());
-// Session middleware
-// Session middleware (Updated for production)
+
 app.use(
   session({
     secret:
@@ -42,7 +41,7 @@ app.use(
     saveUninitialized: false,
     store: MongoStore.create({
       mongoUrl: process.env.MONGO_URI,
-      touchAfter: 24 * 3600, // lazy session update (24 hours in seconds)
+      touchAfter: 24 * 3600,
       crypto: {
         secret:
           process.env.SESSION_SECRET ||
@@ -50,23 +49,24 @@ app.use(
       },
     }),
     cookie: {
-      secure: process.env.NODE_ENV === "production", // true in production (HTTPS)
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 1000 * 60 * 60 * 24 * 7,
       httpOnly: true,
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 'none' for cross-site in production
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     },
   })
 );
-// Passport middleware
+
 app.use(passport.initialize());
 app.use(passport.session());
-// CORS middleware
+
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "http://localhost:5173",
     credentials: true,
   })
 );
+
 app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
@@ -85,7 +85,7 @@ app.get("/api/health", async (req, res) => {
     version: "1.0.0",
     services: {},
   };
-  // Check Database Connection
+
   try {
     const mongoose = (await import("mongoose")).default;
     const dbState = mongoose.connection.readyState;
@@ -113,7 +113,7 @@ app.get("/api/health", async (req, res) => {
       error: error.message,
     };
   }
-  // Check Memory Usage
+
   const memoryUsage = process.memoryUsage();
   healthcheck.services.memory = {
     status: "healthy",
@@ -124,7 +124,7 @@ app.get("/api/health", async (req, res) => {
       external: `${Math.round(memoryUsage.external / 1024 / 1024)} MB`,
     },
   };
-  // Check Session Store
+
   try {
     healthcheck.services.session = {
       status: "healthy",
@@ -136,7 +136,7 @@ app.get("/api/health", async (req, res) => {
       error: error.message,
     };
   }
-  // Overall Status Code
+
   const statusCode =
     healthcheck.status === "healthy"
       ? 200
@@ -145,10 +145,10 @@ app.get("/api/health", async (req, res) => {
       : 503;
   res.status(statusCode).json(healthcheck);
 });
+
 app.get("/api/health/ready", async (req, res) => {
   try {
     const mongoose = (await import("mongoose")).default;
-    // Check if database is connected
     const dbConnected = mongoose.connection.readyState === 1;
     if (!dbConnected) {
       return res.status(503).json({
@@ -158,7 +158,6 @@ app.get("/api/health/ready", async (req, res) => {
         timestamp: new Date().toISOString(),
       });
     }
-    // Service is ready
     res.status(200).json({
       success: true,
       ready: true,
@@ -174,6 +173,7 @@ app.get("/api/health/ready", async (req, res) => {
     });
   }
 });
+
 app.get("/api/health/live", (req, res) => {
   res.status(200).json({
     success: true,
@@ -218,11 +218,12 @@ app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/proposals", proposalRoutes);
 app.use("/api/profile", profileRoutes);
-// 404 handler - must be after all routes
+
 app.all("*", (req, res, next) => {
   next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
 });
-// Global error handling middleware - must be last
+
 app.use(errorHandler);
+
 export default app;
 

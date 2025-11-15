@@ -1,9 +1,6 @@
 import User from "../../models/User.js";
 import { AppError } from "../../core/errors/index.js";
 
-/**
- * Get user profile by ID
- */
 export const getProfile = async (userId) => {
   const user = await User.findById(userId);
   
@@ -14,9 +11,6 @@ export const getProfile = async (userId) => {
   return user;
 };
 
-/**
- * Update user profile
- */
 export const updateProfile = async (userId, updateData) => {
   const allowedFields = [
     'name', 'bio', 'location', 'phone', 'website',
@@ -25,7 +19,6 @@ export const updateProfile = async (userId, updateData) => {
     'languages', 'availability'
   ];
   
-  // Filter only allowed fields
   const filteredData = {};
   Object.keys(updateData).forEach(key => {
     if (allowedFields.includes(key)) {
@@ -46,9 +39,6 @@ export const updateProfile = async (userId, updateData) => {
   return user;
 };
 
-/**
- * Update avatar
- */
 export const updateAvatar = async (userId, avatarUrl) => {
   const user = await User.findByIdAndUpdate(
     userId,
@@ -63,9 +53,6 @@ export const updateAvatar = async (userId, avatarUrl) => {
   return user;
 };
 
-/**
- * Add portfolio item (Freelancer only)
- */
 export const addPortfolioItem = async (userId, portfolioData) => {
   const user = await User.findById(userId);
   
@@ -83,9 +70,6 @@ export const addPortfolioItem = async (userId, portfolioData) => {
   return user;
 };
 
-/**
- * Update portfolio item
- */
 export const updatePortfolioItem = async (userId, portfolioId, updateData) => {
   const user = await User.findById(userId);
   
@@ -105,9 +89,6 @@ export const updatePortfolioItem = async (userId, portfolioId, updateData) => {
   return user;
 };
 
-/**
- * Delete portfolio item
- */
 export const deletePortfolioItem = async (userId, portfolioId) => {
   const user = await User.findById(userId);
   
@@ -119,4 +100,36 @@ export const deletePortfolioItem = async (userId, portfolioId) => {
   await user.save();
   
   return user;
+};
+
+export const getFreelancerProfile = async (userId) => {
+  const user = await User.findById(userId).select('-password');
+  
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  if (user.role !== 'freelancer') {
+    throw new AppError('User is not a freelancer', 403);
+  }
+
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    avatar: user.avatar,
+    bio: user.bio,
+    location: user.location,
+    phone: user.phone,
+    skills: user.skills || [],
+    hourlyRate: user.hourlyRate,
+    experience: user.experience,
+    portfolio: user.portfolio || [],
+    isProfileComplete: user.isProfileComplete,
+    stats: {
+      totalProposals: 0,
+      ongoingProjects: 0,
+      averageRating: 0
+    }
+  };
 };
