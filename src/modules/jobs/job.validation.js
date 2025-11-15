@@ -118,13 +118,14 @@ export const createJobSchema = Joi.object({
     .valid('small', 'medium', 'large')
     .default('medium'),
   
+  locationType: Joi.string()
+    .valid('remote', 'onsite', 'hybrid')
+    .default('remote'),
+  
   location: Joi.object({
-    type: Joi.string()
-      .valid('remote', 'onsite', 'hybrid')
-      .default('remote'),
-    country: Joi.string().optional(),
-    city: Joi.string().optional(),
-    timezone: Joi.string().optional(),
+    country: Joi.string().optional().allow(''),
+    city: Joi.string().optional().allow(''),
+    timezone: Joi.string().optional().allow(''),
   }).optional(),
   
   applicationDeadline: Joi.date()

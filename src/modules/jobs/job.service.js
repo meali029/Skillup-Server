@@ -75,7 +75,7 @@ class JobService {
 
       // Location type filter
       if (locationType) {
-        query['location.type'] = locationType;
+        query.locationType = locationType;
       }
 
       // Skills filter
