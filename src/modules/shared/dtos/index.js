@@ -1,2 +1,2 @@
-export { default as UserDTO } from './UserDTO.js';
-export { default as JobDTO } from './JobDTO.js';
+export { default as formatUser, formatUserMinimal } from './UserDTO.js';
+export { default as formatJob, formatJobMinimal } from './JobDTO.js';

@@ -19,11 +19,9 @@ import { authenticate, authorize } from "../../core/middlewares/index.js";
 
 const router = express.Router();
 
-// All routes require authentication and freelancer role
 router.use(authenticate);
 router.use(authorize("freelancer"));
 
-// Proposal routes
 router.post("/", validateSubmitProposal, submitProposal);
 router.get("/me", validateProposalQuery, getMyProposals);
 router.get("/stats", getProposalStats);
