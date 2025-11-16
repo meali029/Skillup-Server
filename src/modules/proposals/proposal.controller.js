@@ -51,6 +51,62 @@ export const getProposalStats = asyncHandler(async (req, res) => {
 });
 
 export const checkIfApplied = asyncHandler(async (req, res) => {
-  const hasApplied = await proposalService.hasApplied(req.user.id, req.params.jobId);
-  successResponse(res, { hasApplied }, "Check completed successfully");
+  const result = await proposalService.hasApplied(req.user.id, req.params.jobId);
+  successResponse(res, result, "Check completed successfully");
+});
+
+// ============ CLIENT-SIDE PROPOSAL MANAGEMENT ============
+
+export const getJobProposals = asyncHandler(async (req, res) => {
+  const { status, page, limit, sortBy, sortOrder } = req.query;
+  
+  const result = await proposalService.getJobProposals(req.params.jobId, req.user.id, {
+    status,
+    page,
+    limit,
+    sortBy,
+    sortOrder,
+  });
+
+  paginatedResponse(
+    res,
+    result.proposals,
+    result.pagination.page,
+    result.pagination.limit,
+    result.pagination.total
+  );
+});
+
+export const getClientProposalDetails = asyncHandler(async (req, res) => {
+  const proposal = await proposalService.getClientProposalById(req.params.id, req.user.id);
+  successResponse(res, { proposal }, "Proposal fetched successfully");
+});
+
+export const acceptProposal = asyncHandler(async (req, res) => {
+  const proposal = await proposalService.acceptProposal(req.params.id, req.user.id);
+  successResponse(res, { proposal }, "Proposal accepted successfully");
+});
+
+export const rejectProposal = asyncHandler(async (req, res) => {
+  const { reason } = req.body;
+  const proposal = await proposalService.rejectProposal(req.params.id, req.user.id, reason);
+  successResponse(res, { proposal }, "Proposal rejected successfully");
+});
+
+export const getAllClientProposals = asyncHandler(async (req, res) => {
+  const { status, page, limit, sortBy, sortOrder } = req.query;
+  
+  const result = await proposalService.getAllClientProposals(req.user.id, {
+    status,
+    page,
+    limit,
+    sortBy,
+    sortOrder,
+  });
+
+  successResponse(res, { 
+    proposals: result.proposals, 
+    stats: result.stats,
+    pagination: result.pagination 
+  }, "Proposals fetched successfully");
 });

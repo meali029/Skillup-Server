@@ -24,7 +24,8 @@ const proposalSchema = new mongoose.Schema(
     bidAmount: {
       type: Number,
       required: true,
-      min: 0,
+      min: [500, 'Proposed price must be at least PKR 500'],
+      max: [10000000, 'Proposed price cannot exceed PKR 10,000,000'],
     },
     deliveryTime: {
       type: Number,

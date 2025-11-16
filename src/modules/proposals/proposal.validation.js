@@ -24,13 +24,13 @@ export const submitProposalSchema = Joi.object({
     }),
 
   bidAmount: Joi.number()
-    .min(5)
-    .max(1000000)
+    .min(500)
+    .max(10000000)
     .required()
     .messages({
-      "number.min": "Bid amount must be at least $5",
-      "number.max": "Bid amount cannot exceed $1,000,000",
-      "any.required": "Bid amount is required",
+      "number.min": "Proposed price must be at least PKR 500",
+      "number.max": "Proposed price cannot exceed PKR 10,000,000",
+      "any.required": "Proposed price is required",
     }),
 
   deliveryTime: Joi.number()
@@ -73,11 +73,11 @@ export const updateProposalSchema = Joi.object({
     }),
 
   bidAmount: Joi.number()
-    .min(5)
-    .max(1000000)
+    .min(500)
+    .max(10000000)
     .messages({
-      "number.min": "Bid amount must be at least $5",
-      "number.max": "Bid amount cannot exceed $1,000,000",
+      "number.min": "Proposed price must be at least PKR 500",
+      "number.max": "Proposed price cannot exceed PKR 10,000,000",
     }),
 
   deliveryTime: Joi.number()
@@ -182,6 +182,30 @@ export const proposalQuerySchema = Joi.object({
 });
 
 /**
+ * Validation schema for rejecting a proposal
+ */
+export const rejectProposalSchema = Joi.object({
+  reason: Joi.string()
+    .trim()
+    .allow('')
+    .optional()
+    .custom((value, helpers) => {
+      // If reason is provided and not empty, must be at least 10 chars
+      if (value && value.length > 0 && value.length < 10) {
+        return helpers.error('string.min', { limit: 10 });
+      }
+      if (value && value.length > 500) {
+        return helpers.error('string.max', { limit: 500 });
+      }
+      return value;
+    })
+    .messages({
+      "string.min": "Rejection reason must be at least 10 characters if provided",
+      "string.max": "Rejection reason cannot exceed 500 characters",
+    }),
+});
+
+/**
  * Validation middleware for submitting a proposal
  */
 export const validateSubmitProposal = (req, res, next) => {
@@ -279,5 +303,28 @@ export const validateProposalQuery = (req, res, next) => {
   }
 
   req.validatedQuery = value;
+  next();
+};
+
+/**
+ * Validation middleware for rejecting a proposal
+ */
+export const validateRejectProposal = (req, res, next) => {
+  const { error, value } = rejectProposalSchema.validate(req.body, { abortEarly: false });
+
+  if (error) {
+    const errors = error.details.map((detail) => ({
+      field: detail.path.join("."),
+      message: detail.message,
+    }));
+
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors,
+    });
+  }
+
+  req.validatedData = value;
   next();
 };
