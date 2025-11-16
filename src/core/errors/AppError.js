@@ -1,7 +1,3 @@
-/**
- * Custom Application Error Class
- * Used for predictable, operational errors
- */
 class AppError extends Error {
   constructor(message, statusCode = 500, isOperational = true) {
     super(message);

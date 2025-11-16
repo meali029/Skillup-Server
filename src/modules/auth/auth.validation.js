@@ -50,6 +50,92 @@ export const registerSchema = Joi.object({
     .optional()
     .messages({
       "any.only": "Role must be either 'freelancer' or 'client'"
+    }),
+  
+  // Basic profile fields (optional during registration)
+  bio: Joi.string()
+    .trim()
+    .max(500)
+    .optional()
+    .allow("")
+    .messages({
+      "string.max": "Bio must not exceed 500 characters"
+    }),
+  
+  location: Joi.string()
+    .trim()
+    .max(200)
+    .optional()
+    .allow("")
+    .messages({
+      "string.max": "Location must not exceed 200 characters"
+    }),
+  
+  phone: Joi.string()
+    .trim()
+    .pattern(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/)
+    .optional()
+    .allow("")
+    .messages({
+      "string.pattern.base": "Please provide a valid phone number"
+    }),
+  
+  // Freelancer-specific fields (optional during registration)
+  skills: Joi.array()
+    .items(Joi.string().trim().min(1).max(50))
+    .min(0)
+    .max(20)
+    .optional()
+    .messages({
+      "array.max": "You can add up to 20 skills",
+      "string.min": "Skill name must not be empty",
+      "string.max": "Skill name must not exceed 50 characters"
+    }),
+  
+  hourlyRate: Joi.number()
+    .positive()
+    .min(5)
+    .max(10000)
+    .optional()
+    .messages({
+      "number.positive": "Hourly rate must be a positive number",
+      "number.min": "Hourly rate must be at least $5",
+      "number.max": "Hourly rate must not exceed $10,000"
+    }),
+  
+  experience: Joi.string()
+    .valid("beginner", "intermediate", "expert")
+    .optional()
+    .messages({
+      "any.only": "Experience level must be 'beginner', 'intermediate', or 'expert'"
+    }),
+  
+  // Client-specific fields (optional during registration)
+  companyName: Joi.string()
+    .trim()
+    .min(2)
+    .max(200)
+    .optional()
+    .messages({
+      "string.min": "Company name must be at least 2 characters long",
+      "string.max": "Company name must not exceed 200 characters"
+    }),
+  
+  companySize: Joi.string()
+    .valid("1-10", "11-50", "51-200", "201-500", "500+")
+    .optional()
+    .messages({
+      "any.only": "Company size must be one of: 1-10, 11-50, 51-200, 201-500, 500+"
+    }),
+  
+  industry: Joi.string()
+    .trim()
+    .min(2)
+    .max(100)
+    .optional()
+    .messages({
+      "string.min": "Industry must be at least 2 characters long",
+      "string.max": "Industry must not exceed 100 characters"
     })
 });
 

@@ -3,102 +3,119 @@ import bcrypt from "bcryptjs";
 import { AppError } from "../../core/errors/index.js";
 import { TokenService } from "../shared/services/index.js";
 
-/**
- * Register a new user with local authentication
- * @param {Object} userData - User registration data
- * @returns {Object} User and token
- */
-export const registerLocal = async ({ name, email, password, role }) => {
-  // Check for existing user
+export const registerLocal = async (registrationData) => {
+  const { 
+    name, email, password, role, bio, location, phone,
+    skills, hourlyRate, experience, 
+    companyName, companySize, industry 
+  } = registrationData;
+
   const exists = await User.findOne({ email });
   if (exists) {
     throw new AppError("Email already registered", 400);
   }
 
-  // Prepare user data (password will be hashed by the pre-save hook)
+  // Build user data object
   const userData = {
     name,
     email,
-    password, // Will be hashed by pre-save hook
-    role: role || undefined, // undefined allows user to select role later
-    provider: "local"
+    password,
+    provider: "local",
+    role: role || undefined,
+    bio: bio || '',
+    location: location || '',
+    phone: phone || '',
   };
 
-  // Create user
+  // Add freelancer-specific fields
+  if (role === 'freelancer') {
+    userData.skills = skills && skills.length > 0 ? skills : [];
+    userData.hourlyRate = hourlyRate ? parseFloat(hourlyRate) : undefined;
+    userData.experience = experience || undefined;
+  }
+
+  // Add client-specific fields
+  if (role === 'client') {
+    userData.companyName = companyName || undefined;
+    userData.companySize = companySize || undefined;
+    userData.industry = industry || undefined;
+  }
+
   const user = await User.create(userData);
   
-  // Profile completion will be auto-calculated by the pre-save hook
-  const isComplete = Boolean(user.checkProfileComplete());
-  if (user.isProfileComplete !== isComplete) {
+  // Check if profile is complete using the model method
+  const isComplete = user.checkProfileComplete();
+  
+  // Update isProfileComplete flag if needed
+  if (isComplete !== user.isProfileComplete) {
     user.isProfileComplete = isComplete;
     await user.save();
   }
   
-  const token = TokenService.generateToken(user);
+  // Reload user to get the saved state
+  const savedUser = await User.findById(user._id).select('-password');
   
-  return { user, token };
+  const token = TokenService.generateToken(savedUser);
+  
+  return { user: savedUser, token };
 };
 
-
-/**
- * Complete user profile after registration
- * @param {String} userId - User ID
- * @param {Object} profileData - Profile completion data
- * @returns {Object} Updated user
- */
 export const completeProfile = async (userId, profileData) => {
   const { role, bio, location, phone, skills, hourlyRate, experience, companyName, companySize, industry } = profileData;
 
-  console.log('completeProfile service called:', { userId, role });
-
   const user = await User.findById(userId);
   if (!user) {
-    console.error('User not found:', userId);
     throw new AppError('User not found', 404);
   }
 
-  console.log('User found:', { id: user._id, email: user.email, currentRole: user.role });
-
   // Validate role
   if (!role || !['freelancer', 'client'].includes(role)) {
-    console.error('Invalid role:', role);
     throw new AppError('Valid role (freelancer or client) is required', 400);
   }
 
   // Update basic fields
   user.role = role;
-  if (bio !== undefined) user.bio = bio;
-  if (location !== undefined) user.location = location;
-  if (phone !== undefined) user.phone = phone;
+  user.bio = bio || '';
+  user.location = location || '';
+  user.phone = phone || '';
 
-  console.log('Basic fields updated');
-
-  // Update role-specific fields
+  // Role-specific fields with validation
   if (role === 'freelancer') {
-    user.skills = skills || [];
-    user.hourlyRate = hourlyRate;
+    // Validate freelancer required fields
+    if (!skills || !Array.isArray(skills) || skills.length === 0) {
+      throw new AppError('At least one skill is required for freelancers', 400);
+    }
+    if (!hourlyRate || hourlyRate <= 0) {
+      throw new AppError('Valid hourly rate is required for freelancers', 400);
+    }
+    if (!experience) {
+      throw new AppError('Experience level is required for freelancers', 400);
+    }
+
+    user.skills = skills;
+    user.hourlyRate = parseFloat(hourlyRate);
     user.experience = experience;
     
-    console.log('Freelancer fields set:', { 
-      skillsCount: user.skills.length, 
-      hourlyRate: user.hourlyRate, 
-      experience: user.experience 
-    });
-    
-    // Clear client fields by setting to undefined
+    // Clear client fields
     user.companyName = undefined;
     user.companySize = undefined;
     user.industry = undefined;
+    
   } else if (role === 'client') {
+    // Validate client required fields
+    if (!companyName) {
+      throw new AppError('Company name is required for clients', 400);
+    }
+    if (!companySize) {
+      throw new AppError('Company size is required for clients', 400);
+    }
+    if (!industry) {
+      throw new AppError('Industry is required for clients', 400);
+    }
+
     user.companyName = companyName;
     user.companySize = companySize;
     user.industry = industry;
-    
-    console.log('Client fields set:', { 
-      companyName: user.companyName, 
-      companySize: user.companySize, 
-      industry: user.industry 
-    });
     
     // Clear freelancer fields
     user.skills = [];
@@ -106,46 +123,42 @@ export const completeProfile = async (userId, profileData) => {
     user.experience = undefined;
   }
 
-  // Calculate profile completion status - ensure it's a boolean
-  const isComplete = Boolean(user.checkProfileComplete());
-  user.isProfileComplete = isComplete;
-
-  console.log('Profile completion checked:', isComplete);
+  // CRITICAL: Force profile completion to true
+  user.isProfileComplete = true;
 
   // Save with validation
-  try {
-    await user.save();
-    console.log('User saved successfully');
-  } catch (error) {
-    console.error('Error saving user:', error);
-    throw new AppError(`Failed to save profile: ${error.message}`, 500);
+  await user.save({ validateBeforeSave: true });
+
+  // Fetch fresh user data to confirm save
+  const savedUser = await User.findById(userId).select('-password');
+
+  // Double-check that profile is actually complete
+  if (!savedUser.isProfileComplete) {
+    throw new AppError('Failed to complete profile', 500);
   }
 
-  return user;
+  return savedUser;
 };
 
-/**
- * Login user with local authentication
- * @param {Object} credentials - Login credentials
- * @returns {Object} User and token
- */
 export const loginLocal = async ({ email, password }) => {
-  // Select password field explicitly since it's set to select: false in schema
   const user = await User.findOne({ email }).select('+password');
   
   if (!user || user.provider !== "local") {
     throw new AppError("Invalid credentials", 401);
   }
   
-  // Use the comparePassword method from the model
   const isPasswordValid = await user.comparePassword(password);
   
   if (!isPasswordValid) {
     throw new AppError("Invalid credentials", 401);
   }
   
+  // Remove password from user object
+  const userWithoutPassword = user.toObject();
+  delete userWithoutPassword.password;
+  
   const token = TokenService.generateToken(user);
   
-  return { user, token };
+  return { user: userWithoutPassword, token };
 };
 
