@@ -27,8 +27,15 @@ export const createProposal = async (userId, proposalData) => {
     jobId: jobId,
   });
 
-  if (existingProposal) {
+  // Only block if there's an active (non-withdrawn) proposal
+  if (existingProposal && existingProposal.status !== 'withdrawn') {
     throw new AppError("You have already submitted a proposal for this job", 400);
+  }
+
+  // If there's a withdrawn proposal, delete it to allow resubmission
+  // This handles the unique index constraint on (freelancerId, jobId)
+  if (existingProposal && existingProposal.status === 'withdrawn') {
+    await Proposal.findByIdAndDelete(existingProposal._id);
   }
 
   if (job.budgetMin && bidAmount < job.budgetMin) {
@@ -187,7 +194,201 @@ export const hasApplied = async (userId, jobId) => {
   const proposal = await Proposal.findOne({
     freelancerId: userId,
     jobId: jobId,
+  }).select('_id status createdAt');
+
+  // Treat withdrawn proposals as "not applied" - user can apply again
+  if (!proposal || proposal.status === 'withdrawn') {
+    return { hasApplied: false, proposal: null };
+  }
+
+  return { 
+    hasApplied: true, 
+    proposal: {
+      id: proposal._id,
+      status: proposal.status,
+      createdAt: proposal.createdAt
+    }
+  };
+};
+
+// ============ CLIENT-SIDE PROPOSAL MANAGEMENT ============
+
+export const getJobProposals = async (jobId, clientId, filters = {}) => {
+  // Verify job belongs to this client
+  const job = await Job.findById(jobId);
+  if (!job) {
+    throw new AppError("Job not found", 404);
+  }
+  
+  // Handle both ObjectId and populated client object
+  const jobClientId = job.client?._id || job.client;
+  
+  console.log('getJobProposals Debug:', {
+    jobId,
+    clientId,
+    jobClientId: jobClientId?.toString(),
+    jobClient: job.client,
+    match: jobClientId?.toString() === clientId.toString()
+  });
+  
+  if (jobClientId.toString() !== clientId.toString()) {
+    throw new AppError("You don't have permission to view proposals for this job", 403);
+  }
+
+  const { status, page = 1, limit = 10, sortBy = "createdAt", sortOrder = "desc" } = filters;
+
+  const query = { jobId };
+  if (status) {
+    query.status = status;
+  }
+
+  const skip = (page - 1) * limit;
+  const sortOptions = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
+
+  const proposals = await Proposal.find(query)
+    .populate("freelancerId", "name email avatar skills hourlyRate experience bio location")
+    .populate("jobId", "title description budget budgetMin budgetMax")
+    .sort(sortOptions)
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Proposal.countDocuments(query);
+  
+  console.log('getJobProposals Result:', {
+    totalProposals: total,
+    returnedProposals: proposals.length,
+    query
   });
 
-  return !!proposal;
+  return {
+    proposals,
+    pagination: {
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      pages: Math.ceil(total / limit),
+    },
+  };
+};
+
+export const getClientProposalById = async (proposalId, clientId) => {
+  const proposal = await Proposal.findById(proposalId)
+    .populate("freelancerId", "name email avatar skills hourlyRate experience bio location")
+    .populate("jobId", "title description budget budgetMin budgetMax client");
+
+  if (!proposal) {
+    throw new AppError("Proposal not found", 404);
+  }
+
+  // Verify the job belongs to this client
+  if (proposal.jobId.client.toString() !== clientId.toString()) {
+    throw new AppError("You don't have permission to view this proposal", 403);
+  }
+
+  return proposal;
+};
+
+export const acceptProposal = async (proposalId, clientId) => {
+  const proposal = await Proposal.findById(proposalId).populate("jobId");
+
+  if (!proposal) {
+    throw new AppError("Proposal not found", 404);
+  }
+
+  // Verify the job belongs to this client
+  if (proposal.jobId.client.toString() !== clientId.toString()) {
+    throw new AppError("You don't have permission to accept this proposal", 403);
+  }
+
+  if (proposal.status !== "pending") {
+    throw new AppError(`Cannot accept a proposal that is already ${proposal.status}`, 400);
+  }
+
+  proposal.status = "accepted";
+  await proposal.save();
+
+  // Optionally: Reject all other pending proposals for this job
+  await Proposal.updateMany(
+    { 
+      jobId: proposal.jobId._id, 
+      _id: { $ne: proposalId },
+      status: "pending" 
+    },
+    { status: "rejected" }
+  );
+
+  return await Proposal.findById(proposalId)
+    .populate("freelancerId", "name email avatar skills")
+    .populate("jobId", "title description");
+};
+
+export const rejectProposal = async (proposalId, clientId, reason = null) => {
+  const proposal = await Proposal.findById(proposalId).populate("jobId");
+
+  if (!proposal) {
+    throw new AppError("Proposal not found", 404);
+  }
+
+  // Verify the job belongs to this client
+  if (proposal.jobId.client.toString() !== clientId.toString()) {
+    throw new AppError("You don't have permission to reject this proposal", 403);
+  }
+
+  if (proposal.status !== "pending") {
+    throw new AppError(`Cannot reject a proposal that is already ${proposal.status}`, 400);
+  }
+
+  proposal.status = "rejected";
+  if (reason) {
+    proposal.rejectionReason = reason;
+  }
+  await proposal.save();
+
+  return await Proposal.findById(proposalId)
+    .populate("freelancerId", "name email avatar")
+    .populate("jobId", "title");
+};
+
+export const getAllClientProposals = async (clientId, filters = {}) => {
+  const { status, page = 1, limit = 10, sortBy = "createdAt", sortOrder = "desc" } = filters;
+
+  // Get all jobs by this client
+  const clientJobs = await Job.find({ client: clientId }).select('_id');
+  const jobIds = clientJobs.map(job => job._id);
+
+  const query = { jobId: { $in: jobIds } };
+  if (status) {
+    query.status = status;
+  }
+
+  const skip = (page - 1) * limit;
+  const sortOptions = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
+
+  const proposals = await Proposal.find(query)
+    .populate("freelancerId", "name email avatar skills hourlyRate")
+    .populate("jobId", "title description")
+    .sort(sortOptions)
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Proposal.countDocuments(query);
+
+  // Get stats
+  const stats = {
+    total: await Proposal.countDocuments({ jobId: { $in: jobIds } }),
+    pending: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "pending" }),
+    accepted: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "accepted" }),
+    rejected: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "rejected" }),
+  };
+
+  return {
+    proposals,
+    stats,
+    pagination: {
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      pages: Math.ceil(total / limit),
+    },
+  };
 };
