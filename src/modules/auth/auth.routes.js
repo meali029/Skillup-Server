@@ -1,10 +1,13 @@
 import express from "express";
 import passport from "passport";
-import { register, login, logout, me, googleCallback, completeProfile } from "./auth.controller.js";
+import { register, login, logout, me, googleCallback, completeProfile, requestPasswordResetController, verifyOTPController, resetPasswordController } from "./auth.controller.js";
 import { authenticate } from "../../core/middlewares/index.js";
 import { 
   validateRegister, 
-  validateLogin
+  validateLogin,
+  validateRequestPasswordReset,
+  validateVerifyOTP,
+  validateResetPassword
 } from "./auth.validation.js";
 
 function createAuthRoutes() {
@@ -16,6 +19,11 @@ function createAuthRoutes() {
   router.get("/me", authenticate, me);
   router.post("/complete-profile", authenticate, completeProfile);
   router.put("/complete-profile", authenticate, completeProfile);
+
+  // Forgot password routes (rate limiting removed)
+  router.post("/forgot-password", validateRequestPasswordReset, requestPasswordResetController);
+  router.post("/verify-otp", validateVerifyOTP, verifyOTPController);
+  router.post("/reset-password", validateResetPassword, resetPasswordController);
 
   router.get("/oauth-config", (req, res) => {
     res.json({
