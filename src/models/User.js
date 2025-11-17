@@ -59,6 +59,10 @@ const userSchema = new mongoose.Schema({
   // Account status
   isActive: { type: Boolean, default: true },
   
+  // Password reset OTP fields
+  resetPasswordOTP: { type: String, select: false },
+  resetPasswordOTPExpires: { type: Date, select: false },
+  
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });

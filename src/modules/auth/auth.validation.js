@@ -433,6 +433,95 @@ export const emailSchema = Joi.object({
 });
 
 // ===========================
+// Forgot Password - Request Reset Validation
+// ===========================
+export const requestPasswordResetSchema = Joi.object({
+  email: Joi.string()
+    .trim()
+    .lowercase()
+    .email()
+    .required()
+    .messages({
+      "string.empty": "Email is required",
+      "string.email": "Please provide a valid email address",
+      "any.required": "Email is required"
+    })
+});
+
+// ===========================
+// Forgot Password - Verify OTP Validation
+// ===========================
+export const verifyOTPSchema = Joi.object({
+  email: Joi.string()
+    .trim()
+    .lowercase()
+    .email()
+    .required()
+    .messages({
+      "string.empty": "Email is required",
+      "string.email": "Please provide a valid email address",
+      "any.required": "Email is required"
+    }),
+  
+  otp: Joi.string()
+    .length(6)
+    .pattern(/^\d{6}$/)
+    .required()
+    .messages({
+      "string.empty": "OTP is required",
+      "string.length": "OTP must be exactly 6 digits",
+      "string.pattern.base": "OTP must contain only numbers",
+      "any.required": "OTP is required"
+    })
+});
+
+// ===========================
+// Forgot Password - Reset Password Validation
+// ===========================
+export const resetPasswordSchema = Joi.object({
+  email: Joi.string()
+    .trim()
+    .lowercase()
+    .email()
+    .required()
+    .messages({
+      "string.empty": "Email is required",
+      "string.email": "Please provide a valid email address",
+      "any.required": "Email is required"
+    }),
+  
+  otp: Joi.string()
+    .length(6)
+    .pattern(/^\d{6}$/)
+    .required()
+    .messages({
+      "string.empty": "OTP is required",
+      "string.length": "OTP must be exactly 6 digits",
+      "string.pattern.base": "OTP must contain only numbers",
+      "any.required": "OTP is required"
+    }),
+  
+  newPassword: Joi.string()
+    .min(6)
+    .max(128)
+    .required()
+    .messages({
+      "string.empty": "New password is required",
+      "string.min": "Password must be at least 6 characters long",
+      "string.max": "Password must not exceed 128 characters",
+      "any.required": "New password is required"
+    }),
+  
+  confirmPassword: Joi.string()
+    .valid(Joi.ref('newPassword'))
+    .required()
+    .messages({
+      "any.only": "Passwords do not match",
+      "any.required": "Please confirm your new password"
+    })
+});
+
+// ===========================
 // Validation Middleware
 // ===========================
 export const validateRegister = (req, res, next) => {
@@ -575,6 +664,78 @@ export const validateChangePassword = (req, res, next) => {
 
 export const validateEmail = (req, res, next) => {
   const { error, value } = emailSchema.validate(req.body, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    const errors = error.details.map(detail => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    }));
+    
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors
+    });
+  }
+
+  req.validatedData = value;
+  next();
+};
+
+// ===========================
+// Forgot Password Validation Middleware
+// ===========================
+export const validateRequestPasswordReset = (req, res, next) => {
+  const { error, value } = requestPasswordResetSchema.validate(req.body, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    const errors = error.details.map(detail => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    }));
+    
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors
+    });
+  }
+
+  req.validatedData = value;
+  next();
+};
+
+export const validateVerifyOTP = (req, res, next) => {
+  const { error, value } = verifyOTPSchema.validate(req.body, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    const errors = error.details.map(detail => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    }));
+    
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors
+    });
+  }
+
+  req.validatedData = value;
+  next();
+};
+
+export const validateResetPassword = (req, res, next) => {
+  const { error, value } = resetPasswordSchema.validate(req.body, {
     abortEarly: false,
     stripUnknown: true
   });
