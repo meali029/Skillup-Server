@@ -2,6 +2,8 @@ import User from "../../models/User.js";
 import bcrypt from "bcryptjs";
 import { AppError } from "../../core/errors/index.js";
 import { TokenService } from "../shared/services/index.js";
+import { generateOTPData, verifyOTP as verifyOTPUtil, isOTPExpired } from "../../core/utils/otpService.js";
+import { sendOTPEmail, sendPasswordResetConfirmation } from "../../core/utils/emailService.js";
 
 export const registerLocal = async (registrationData) => {
   const { 
@@ -162,3 +164,138 @@ export const loginLocal = async ({ email, password }) => {
   return { user: userWithoutPassword, token };
 };
 
+// Request password reset - send OTP
+export const requestPasswordReset = async (email) => {
+  
+  // Find user by email (check all providers first)
+  const user = await User.findOne({ email });
+
+  
+  if (!user) {
+    return { message: "If this email exists, an OTP has been sent" };
+  }
+  
+  // Check if user signed up with OAuth (Google, etc.)
+  if (user.provider !== "local") {
+    throw new AppError(
+      `This account is linked with ${user.provider === 'google' ? 'Google' : user.provider}. Please sign in using ${user.provider === 'google' ? 'Google' : user.provider}.`,
+      400
+    );
+  }
+  
+  
+  // Generate OTP data
+  const { otp, hashedOTP, expiry } = await generateOTPData();
+  
+  
+  // Store hashed OTP and expiry in database
+  user.resetPasswordOTP = hashedOTP;
+  user.resetPasswordOTPExpires = expiry;
+  await user.save();
+  
+  
+  // Send OTP via email
+  try {
+    await sendOTPEmail(email, otp, user.name);
+  } catch (error) {
+    // Rollback OTP storage if email fails
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordOTPExpires = undefined;
+    await user.save();
+    throw new AppError("Failed to send OTP email. Please try again later", 500);
+  }
+  
+  return { message: "OTP sent successfully to your email" };
+};
+
+// Verify OTP
+export const verifyOTPService = async (email, otp) => {
+  // Find user with OTP fields
+  const user = await User.findOne({ email })
+    .select('+resetPasswordOTP +resetPasswordOTPExpires');
+  
+  if (!user) {
+    throw new AppError("Invalid credentials", 400);
+  }
+  
+  // Check if user is local provider
+  if (user.provider !== "local") {
+    throw new AppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
+  }
+  
+  // Check if OTP exists
+  if (!user.resetPasswordOTP || !user.resetPasswordOTPExpires) {
+    throw new AppError("No OTP request found. Please request a new OTP", 400);
+  }
+  
+  // Check if OTP has expired
+  if (isOTPExpired(user.resetPasswordOTPExpires)) {
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordOTPExpires = undefined;
+    await user.save();
+    throw new AppError("OTP has expired. Please request a new one", 400);
+  }
+  
+  // Verify OTP
+  const isValid = await verifyOTPUtil(otp, user.resetPasswordOTP);
+  
+  if (!isValid) {
+    throw new AppError("Invalid OTP", 400);
+  }
+  
+  return { message: "OTP verified successfully", verified: true };
+};
+
+// Reset password with OTP
+export const resetPassword = async (email, otp, newPassword) => {
+  // Find user with OTP fields
+  const user = await User.findOne({ email })
+    .select('+resetPasswordOTP +resetPasswordOTPExpires +password');
+  
+  if (!user) {
+    throw new AppError("Invalid credentials", 400);
+  }
+  
+  if (user.provider !== "local") {
+    throw new AppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
+  }
+  
+  // Check if OTP exists
+  if (!user.resetPasswordOTP || !user.resetPasswordOTPExpires) {
+    throw new AppError("No OTP request found. Please request a new OTP", 400);
+  }
+  
+  // Check if OTP has expired
+  if (isOTPExpired(user.resetPasswordOTPExpires)) {
+    // Clear expired OTP
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordOTPExpires = undefined;
+    await user.save();
+    throw new AppError("OTP has expired. Please request a new one", 400);
+  }
+  
+  // Verify OTP
+  const isValid = await verifyOTPUtil(otp, user.resetPasswordOTP);
+  
+  if (!isValid) {
+    throw new AppError("Invalid OTP", 400);
+  }
+  
+  // Update password (will be hashed by pre-save middleware)
+  user.password = newPassword;
+  
+  // Clear OTP fields
+  user.resetPasswordOTP = undefined;
+  user.resetPasswordOTPExpires = undefined;
+  
+  await user.save();
+  
+  // Send confirmation email
+  try {
+    await sendPasswordResetConfirmation(email, user.name);
+  } catch (error) {
+    console.error('Failed to send confirmation email:', error);
+  }
+  
+  return { message: "Password reset successfully" };
+};

@@ -13,8 +13,12 @@ import app from "./app.js";
 import connectDB from "./config/db.js";
 // Import all models to register them with Mongoose
 import "./models/index.js";
+import { verifyEmailConfig } from "./core/utils/emailService.js";
 
 connectDB();
+
+// Verify email configuration on startup
+verifyEmailConfig();
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, ()=> console.log(`Server listening on ${PORT}`));

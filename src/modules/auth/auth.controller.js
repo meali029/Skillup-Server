@@ -1,4 +1,4 @@
-import { registerLocal, loginLocal, completeProfile as completeProfileService } from "./auth.service.js";
+import { registerLocal, loginLocal, completeProfile as completeProfileService, requestPasswordReset, verifyOTPService, resetPassword } from "./auth.service.js";
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
 import { AppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
@@ -142,5 +142,48 @@ export const me = asyncHandler(async (req, res) => {
     res,
     { user: formatUser(user) },
     "User retrieved successfully"
+  );
+});
+
+// ===========================
+// Forgot Password Controllers
+// ===========================
+
+export const requestPasswordResetController = asyncHandler(async (req, res) => {
+  const { email } = req.validatedData;
+  
+  const result = await requestPasswordReset(email);
+  
+  successResponse(
+    res,
+    null,
+    result.message,
+    200
+  );
+});
+
+export const verifyOTPController = asyncHandler(async (req, res) => {
+  const { email, otp } = req.validatedData;
+  
+  const result = await verifyOTPService(email, otp);
+  
+  successResponse(
+    res,
+    { verified: result.verified },
+    result.message,
+    200
+  );
+});
+
+export const resetPasswordController = asyncHandler(async (req, res) => {
+  const { email, otp, newPassword } = req.validatedData;
+  
+  const result = await resetPassword(email, otp, newPassword);
+  
+  successResponse(
+    res,
+    null,
+    result.message,
+    200
   );
 });
