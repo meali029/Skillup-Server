@@ -1,8 +1,5 @@
 import Joi from "joi";
 
-// ===========================
-// Profile Update Validation
-// ===========================
 export const updateProfileSchema = Joi.object({
   name: Joi.string()
     .trim()
@@ -127,9 +124,6 @@ export const updateProfileSchema = Joi.object({
     })
 });
 
-// ===========================
-// Portfolio Item Validation
-// ===========================
 export const portfolioItemSchema = Joi.object({
   title: Joi.string()
     .trim()
@@ -171,9 +165,6 @@ export const portfolioItemSchema = Joi.object({
     })
 });
 
-// ===========================
-// Validation Middleware
-// ===========================
 export const validateProfileUpdate = (req, res, next) => {
   const { error, value } = updateProfileSchema.validate(req.body, {
     abortEarly: false,

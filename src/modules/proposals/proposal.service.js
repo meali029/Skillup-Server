@@ -211,8 +211,6 @@ export const hasApplied = async (userId, jobId) => {
   };
 };
 
-// ============ CLIENT-SIDE PROPOSAL MANAGEMENT ============
-
 export const getJobProposals = async (jobId, clientId, filters = {}) => {
   // Verify job belongs to this client
   const job = await Job.findById(jobId);
@@ -222,14 +220,6 @@ export const getJobProposals = async (jobId, clientId, filters = {}) => {
   
   // Handle both ObjectId and populated client object
   const jobClientId = job.client?._id || job.client;
-  
-  console.log('getJobProposals Debug:', {
-    jobId,
-    clientId,
-    jobClientId: jobClientId?.toString(),
-    jobClient: job.client,
-    match: jobClientId?.toString() === clientId.toString()
-  });
   
   if (jobClientId.toString() !== clientId.toString()) {
     throw new AppError("You don't have permission to view proposals for this job", 403);
@@ -253,12 +243,6 @@ export const getJobProposals = async (jobId, clientId, filters = {}) => {
     .limit(limit);
 
   const total = await Proposal.countDocuments(query);
-  
-  console.log('getJobProposals Result:', {
-    totalProposals: total,
-    returnedProposals: proposals.length,
-    query
-  });
 
   return {
     proposals,

@@ -55,7 +55,6 @@ export const checkIfApplied = asyncHandler(async (req, res) => {
   successResponse(res, result, "Check completed successfully");
 });
 
-// ============ CLIENT-SIDE PROPOSAL MANAGEMENT ============
 
 export const getJobProposals = asyncHandler(async (req, res) => {
   const { status, page, limit, sortBy, sortOrder } = req.query;
