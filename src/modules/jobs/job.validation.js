@@ -228,6 +228,19 @@ export const jobQuerySchema = Joi.object({
   maxBudget: Joi.number().min(Joi.ref('minBudget')).optional(),
   experienceLevel: Joi.string().valid('entry', 'intermediate', 'expert').optional(),
   locationType: Joi.string().valid('remote', 'onsite', 'hybrid').optional(),
+  duration: Joi.string()
+    .valid(
+      'less-than-1-month',
+      '1-3-months',
+      '3-6-months',
+      '6-months-plus',
+      'less-than-week',
+      '1-2-weeks',
+      '2-4-weeks',
+      'more-than-6-months'
+    )
+    .optional(),
+  projectSize: Joi.string().valid('small', 'medium', 'large').optional(),
   skills: Joi.alternatives().try(
     Joi.string(),
     Joi.array().items(Joi.string())
