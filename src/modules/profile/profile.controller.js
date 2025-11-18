@@ -9,6 +9,7 @@ import {
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
 import { AppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
+import path from "path";
 
 export const getUserProfile = asyncHandler(async (req, res) => {
   const { userId } = req.params;
@@ -55,6 +56,20 @@ export const uploadAvatar = asyncHandler(async (req, res) => {
     res,
     { user: formatUser(user), avatarUrl },
     "Avatar uploaded successfully"
+  );
+});
+
+export const uploadPortfolioImage = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    throw new AppError("No file uploaded", 400);
+  }
+  
+  const imageUrl = `/uploads/${req.file.filename}`;
+  
+  successResponse(
+    res,
+    { imageUrl },
+    "Portfolio image uploaded successfully"
   );
 });
 
