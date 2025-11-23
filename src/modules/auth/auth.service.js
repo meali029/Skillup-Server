@@ -299,3 +299,161 @@ export const resetPassword = async (email, otp, newPassword) => {
   
   return { message: "Password reset successfully" };
 };
+
+// Submit CNIC for verification
+export const submitCNIC = async (userId, cnicNumber, frontImagePath, backImagePath) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  // Check if CNIC is already verified
+  if (user.cnicVerificationStatus === 'verified') {
+    throw new AppError('CNIC is already verified', 400);
+  }
+
+  // Check if CNIC number is already used by another user
+  const existingUser = await User.findOne({ 
+    cnicNumber, 
+    _id: { $ne: userId },
+    cnicVerificationStatus: { $in: ['verified', 'pending'] }
+  });
+
+  if (existingUser) {
+    throw new AppError('This CNIC number is already registered with another account', 400);
+  }
+
+  // Update user CNIC information
+  user.cnicNumber = cnicNumber;
+  user.cnicFrontImage = frontImagePath;
+  user.cnicBackImage = backImagePath;
+  user.cnicVerificationStatus = 'pending';
+  user.cnicSubmittedAt = new Date();
+  user.cnicRejectionReason = undefined; // Clear any previous rejection reason
+
+  await user.save();
+
+  return user;
+};
+
+// Upload CNIC front image
+export const uploadCNICFront = async (userId, imagePath) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  user.cnicFrontImage = imagePath;
+  await user.save();
+
+  return { imagePath, message: 'CNIC front image uploaded successfully' };
+};
+
+// Upload CNIC back image
+export const uploadCNICBack = async (userId, imagePath) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  user.cnicBackImage = imagePath;
+  await user.save();
+
+  return { imagePath, message: 'CNIC back image uploaded successfully' };
+};
+
+// Get CNIC verification status
+export const getCNICStatus = async (userId) => {
+  const user = await User.findById(userId).select('cnicNumber cnicVerificationStatus cnicVerifiedAt cnicRejectionReason cnicSubmittedAt');
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  // Mask CNIC number for security (show only last 4 digits)
+  let maskedCNIC = null;
+  if (user.cnicNumber) {
+    const parts = user.cnicNumber.split('-');
+    if (parts.length === 3) {
+      maskedCNIC = `XXXXX-XXXXXXX-${parts[2]}`;
+    }
+  }
+
+  return {
+    cnicNumber: maskedCNIC, // Return masked version
+    status: user.cnicVerificationStatus,
+    verifiedAt: user.cnicVerifiedAt,
+    rejectionReason: user.cnicRejectionReason,
+    submittedAt: user.cnicSubmittedAt
+  };
+};
+
+// Admin: Verify CNIC
+export const verifyCNIC = async (adminId, userId, status, rejectionReason = null) => {
+  // Check if admin user exists and is admin
+  const admin = await User.findById(adminId);
+  if (!admin || admin.role !== 'admin') {
+    throw new AppError('Unauthorized. Admin access required', 403);
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+
+  if (user.cnicVerificationStatus !== 'pending') {
+    throw new AppError(`CNIC verification status is ${user.cnicVerificationStatus}. Only pending verifications can be processed`, 400);
+  }
+
+  if (status === 'verified') {
+    user.cnicVerificationStatus = 'verified';
+    user.cnicVerifiedAt = new Date();
+    user.cnicVerifiedBy = adminId;
+    user.cnicRejectionReason = undefined;
+  } else if (status === 'rejected') {
+    if (!rejectionReason || rejectionReason.trim() === '') {
+      throw new AppError('Rejection reason is required when rejecting CNIC verification', 400);
+    }
+    user.cnicVerificationStatus = 'rejected';
+    user.cnicRejectionReason = rejectionReason.trim();
+    user.cnicVerifiedAt = undefined;
+    user.cnicVerifiedBy = undefined;
+  } else {
+    throw new AppError('Invalid status. Must be either "verified" or "rejected"', 400);
+  }
+
+  await user.save();
+
+  return user;
+};
+
+// Admin: Get all pending CNIC verifications
+export const getPendingCNICVerifications = async (adminId, page = 1, limit = 10) => {
+  // Check if admin user exists and is admin
+  const admin = await User.findById(adminId);
+  if (!admin || admin.role !== 'admin') {
+    throw new AppError('Unauthorized. Admin access required', 403);
+  }
+
+  const skip = (page - 1) * limit;
+
+  const query = { cnicVerificationStatus: 'pending' };
+  
+  const [users, total] = await Promise.all([
+    User.find(query)
+      .select('name email cnicNumber cnicFrontImage cnicBackImage cnicSubmittedAt role')
+      .sort({ cnicSubmittedAt: 1 }) // Oldest first
+      .skip(skip)
+      .limit(limit),
+    User.countDocuments(query)
+  ]);
+
+  return {
+    users,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit)
+    }
+  };
+};

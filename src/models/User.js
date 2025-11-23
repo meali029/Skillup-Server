@@ -56,6 +56,25 @@ const userSchema = new mongoose.Schema({
   isProfileComplete: { type: Boolean, default: false },
   isEmailVerified: { type: Boolean, default: false },
   
+  // CNIC Verification (for Pakistani users)
+  cnicNumber: { 
+    type: String, 
+    trim: true,
+    sparse: true, // Allows multiple null values
+    index: { unique: true, sparse: true } // Unique index but allows null
+  },
+  cnicFrontImage: { type: String }, // Path to front image
+  cnicBackImage: { type: String }, // Path to back image
+  cnicVerificationStatus: { 
+    type: String, 
+    enum: ["pending", "verified", "rejected", "not_submitted"], 
+    default: "not_submitted" 
+  },
+  cnicVerifiedAt: { type: Date },
+  cnicVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // Admin who verified
+  cnicRejectionReason: { type: String, maxlength: 500 },
+  cnicSubmittedAt: { type: Date },
+  
   // Account status
   isActive: { type: Boolean, default: true },
   
