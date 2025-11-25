@@ -59,10 +59,10 @@ export const createProposal = async (userId, proposalData) => {
     .populate("jobId", "title description budget budgetMin budgetMax client")
     .populate("freelancerId", "name email avatar skills hourlyRate");
 
-  if (job.bids !== undefined) {
-    job.bids = (job.bids || 0) + 1;
-    await job.save();
-  }
+  // Update job's proposalsCount
+  await Job.findByIdAndUpdate(jobId, {
+    $inc: { proposalsCount: 1 }
+  });
 
   return populatedProposal;
 };
@@ -160,11 +160,10 @@ export const withdrawProposal = async (proposalId, userId) => {
   proposal.status = "withdrawn";
   await proposal.save();
 
-  const job = await Job.findById(proposal.jobId);
-  if (job && job.bids !== undefined && job.bids > 0) {
-    job.bids = job.bids - 1;
-    await job.save();
-  }
+  // Decrement job's proposalsCount
+  await Job.findByIdAndUpdate(proposal.jobId, {
+    $inc: { proposalsCount: -1 }
+  });
 
   return { message: "Proposal withdrawn successfully" };
 };
