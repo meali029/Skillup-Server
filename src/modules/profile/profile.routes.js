@@ -4,6 +4,7 @@ import {
   getMyProfile,
   updateUserProfile,
   uploadAvatar,
+  uploadPortfolioImage,
   addPortfolio,
   updatePortfolio,
   deletePortfolio
@@ -20,6 +21,7 @@ function createProfileRoutes() {
   
   router.post("/avatar", authenticate, uploadSingle("avatar"), handleUploadError, uploadAvatar);
   
+  router.post("/portfolio/upload", authenticate, uploadSingle("portfolioImage"), handleUploadError, uploadPortfolioImage);
   router.post("/portfolio", authenticate, validatePortfolioItem, addPortfolio);
   router.put("/portfolio/:portfolioId", authenticate, validatePortfolioItem, updatePortfolio);
   router.delete("/portfolio/:portfolioId", authenticate, deletePortfolio);

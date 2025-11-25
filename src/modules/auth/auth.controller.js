@@ -145,9 +145,6 @@ export const me = asyncHandler(async (req, res) => {
   );
 });
 
-// ===========================
-// Forgot Password Controllers
-// ===========================
 
 export const requestPasswordResetController = asyncHandler(async (req, res) => {
   const { email } = req.validatedData;

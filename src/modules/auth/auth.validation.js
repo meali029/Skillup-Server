@@ -1,8 +1,5 @@
 import Joi from "joi";
 
-// ===========================
-// Registration Validation
-// ===========================
 export const registerSchema = Joi.object({
   name: Joi.string()
     .trim()
@@ -139,9 +136,6 @@ export const registerSchema = Joi.object({
     })
 });
 
-// ===========================
-// Login Validation
-// ===========================
 export const loginSchema = Joi.object({
   email: Joi.string()
     .trim()
@@ -162,9 +156,6 @@ export const loginSchema = Joi.object({
     })
 });
 
-// ===========================
-// Profile Update Validation (Freelancer)
-// ===========================
 export const updateFreelancerProfileSchema = Joi.object({
   name: Joi.string()
     .trim()
@@ -291,9 +282,6 @@ export const updateFreelancerProfileSchema = Joi.object({
     })
 });
 
-// ===========================
-// Profile Update Validation (Client)
-// ===========================
 export const updateClientProfileSchema = Joi.object({
   name: Joi.string()
     .trim()
@@ -369,9 +357,6 @@ export const updateClientProfileSchema = Joi.object({
     })
 });
 
-// ===========================
-// Role Selection Validation
-// ===========================
 export const selectRoleSchema = Joi.object({
   role: Joi.string()
     .valid("freelancer", "client")
@@ -383,9 +368,6 @@ export const selectRoleSchema = Joi.object({
     })
 });
 
-// ===========================
-// Change Password Validation
-// ===========================
 export const changePasswordSchema = Joi.object({
   currentPassword: Joi.string()
     .required()
@@ -416,9 +398,7 @@ export const changePasswordSchema = Joi.object({
     })
 });
 
-// ===========================
-// Email Validation
-// ===========================
+
 export const emailSchema = Joi.object({
   email: Joi.string()
     .trim()
@@ -432,9 +412,6 @@ export const emailSchema = Joi.object({
     })
 });
 
-// ===========================
-// Forgot Password - Request Reset Validation
-// ===========================
 export const requestPasswordResetSchema = Joi.object({
   email: Joi.string()
     .trim()
@@ -448,9 +425,6 @@ export const requestPasswordResetSchema = Joi.object({
     })
 });
 
-// ===========================
-// Forgot Password - Verify OTP Validation
-// ===========================
 export const verifyOTPSchema = Joi.object({
   email: Joi.string()
     .trim()
@@ -475,9 +449,6 @@ export const verifyOTPSchema = Joi.object({
     })
 });
 
-// ===========================
-// Forgot Password - Reset Password Validation
-// ===========================
 export const resetPasswordSchema = Joi.object({
   email: Joi.string()
     .trim()
@@ -521,9 +492,6 @@ export const resetPasswordSchema = Joi.object({
     })
 });
 
-// ===========================
-// Validation Middleware
-// ===========================
 export const validateRegister = (req, res, next) => {
   const { error, value } = registerSchema.validate(req.body, {
     abortEarly: false,
@@ -685,9 +653,6 @@ export const validateEmail = (req, res, next) => {
   next();
 };
 
-// ===========================
-// Forgot Password Validation Middleware
-// ===========================
 export const validateRequestPasswordReset = (req, res, next) => {
   const { error, value } = requestPasswordResetSchema.validate(req.body, {
     abortEarly: false,

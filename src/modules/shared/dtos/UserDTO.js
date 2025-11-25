@@ -20,6 +20,10 @@ export const formatUser = (user) => {
     formattedUser.hourlyRate = user.hourlyRate;
     formattedUser.experience = user.experience;
     formattedUser.portfolioUrl = user.portfolioUrl;
+    formattedUser.portfolio = user.portfolio || [];
+    formattedUser.availability = user.availability;
+    formattedUser.languages = user.languages || [];
+    formattedUser.website = user.website;
   }
 
   if (user.role === 'client') {
