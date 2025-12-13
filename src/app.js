@@ -17,6 +17,7 @@ import createAuthRoutes from "./modules/auth/auth.routes.js";
 import jobRoutes from "./modules/jobs/job.routes.js";
 import proposalRoutes from "./modules/proposals/proposal.routes.js";
 import createProfileRoutes from "./modules/profile/profile.routes.js";
+import userManagementRoutes from "./modules/admin/users/user-management.routes.js";
 import { errorHandler } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 
@@ -218,6 +219,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/proposals", proposalRoutes);
 app.use("/api/profile", profileRoutes);
+app.use("/api/admin/users", userManagementRoutes);
 
 app.all("*", (req, res, next) => {
   next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));

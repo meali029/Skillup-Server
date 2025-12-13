@@ -59,6 +59,17 @@ const userSchema = new mongoose.Schema({
   // Account status
   isActive: { type: Boolean, default: true },
   
+  // Admin actions - suspension and ban
+  isBanned: { type: Boolean, default: false },
+  suspensionReason: { type: String },
+  banReason: { type: String },
+  suspendedAt: { type: Date },
+  bannedAt: { type: Date },
+  suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  bannedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  activatedAt: { type: Date },
+  activatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  
   // Password reset OTP fields
   resetPasswordOTP: { type: String, select: false },
   resetPasswordOTPExpires: { type: Date, select: false },
