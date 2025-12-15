@@ -24,6 +24,7 @@ const authenticate = asyncHandler(async (req, res, next) => {
       id: user._id,
       email: user.email,
       role: user.role,
+      adminRole: user.adminRole,
       name: user.name,
       isProfileComplete: user.isProfileComplete
     };

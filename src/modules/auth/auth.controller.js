@@ -4,6 +4,7 @@ import { AppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
 import { TokenService } from "../shared/services/index.js";
 import User from "../../models/User.js";
+import { createAuditLog } from "../../core/utils/auditLogger.js";
 
 export const register = asyncHandler(async (req, res) => {
   // Extract all possible registration fields from validatedData or body
@@ -31,6 +32,20 @@ export const login = asyncHandler(async (req, res) => {
   const { user, token } = await loginLocal({ email, password });
   
   res.cookie("token", token, TokenService.getCookieOptions());
+  
+  // Log admin login
+  if (user.role === 'admin') {
+    await createAuditLog({
+      adminId: user._id,
+      action: 'ADMIN_LOGIN',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        email: user.email,
+        loginTime: new Date(),
+      },
+    });
+  }
   
   successResponse(
     res,
@@ -119,6 +134,19 @@ export const completeProfile = asyncHandler(async (req, res) => {
 });
 
 export const logout = asyncHandler(async (req, res) => {
+  // Log admin logout
+  if (req.user && req.user.role === 'admin') {
+    await createAuditLog({
+      adminId: req.user.id,
+      action: 'ADMIN_LOGOUT',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        logoutTime: new Date(),
+      },
+    });
+  }
+  
   res.clearCookie("token", { 
     httpOnly: true, 
     sameSite: "lax" 
