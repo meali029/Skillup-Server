@@ -114,6 +114,17 @@ userSchema.index({ createdAt: -1 }); // Recent users
 userSchema.pre('save', async function(next) {
   this.updatedAt = new Date();
   
+  // Validate: If role is 'admin', adminRole must be set
+  if (this.role === 'admin' && !this.adminRole) {
+    const error = new Error('Admin users must have an adminRole (super_admin, admin, or moderator)');
+    return next(error);
+  }
+  
+  // Validate: If role is not 'admin', adminRole should not be set
+  if (this.role !== 'admin' && this.adminRole) {
+    this.adminRole = undefined; // Clear adminRole for non-admin users
+  }
+  
   // Hash password if it's modified or new
   if (this.isModified('password') && this.password) {
     try {

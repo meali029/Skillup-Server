@@ -25,6 +25,7 @@ import permissionsRoutes from "./modules/admin/permissions/permissions.routes.js
 import cnicRoutes from "./modules/cnic/cnic.routes.js";
 import { errorHandler } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
+import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
 
 initializePassport();
 
@@ -226,6 +227,10 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/proposals", proposalRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/cnic", cnicRoutes);
+
+// Global admin protection - all /api/admin/* routes require admin role AND adminRole
+app.use("/api/admin/*", authenticate, authorizeAdmin);
+
 app.use("/api/admin/users", userManagementRoutes);
 app.use("/api/admin/jobs", jobCheckerRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);

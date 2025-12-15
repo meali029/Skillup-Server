@@ -40,7 +40,16 @@ function createAuthRoutes() {
   
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     router.get("/google", 
-      passport.authenticate("google", { scope: ["profile", "email"] })
+      (req, res, next) => {
+        // Pass through the prompt parameter to force account selection
+        const prompt = req.query.prompt || 'consent';
+        
+        passport.authenticate("google", {
+          scope: ["profile", "email"],
+          prompt: prompt, // 'select_account' forces Google to show account picker
+          session: false,
+        })(req, res, next);
+      }
     );
 
     router.get("/google/callback",

@@ -58,4 +58,21 @@ const authorize = (...roles) => {
   };
 };
 
-export { authenticate, authorize };
+// Specific middleware for admin routes - checks both role and adminRole
+const authorizeAdmin = (req, res, next) => {
+  if (!req.user) {
+    throw new AppError("Authentication required", 401);
+  }
+
+  // Must have role === 'admin' AND have an adminRole set
+  if (req.user.role !== 'admin' || !req.user.adminRole) {
+    throw new AppError(
+      "Access denied. Admin access required with valid admin role",
+      403
+    );
+  }
+
+  next();
+};
+
+export { authenticate, authorize, authorizeAdmin };
