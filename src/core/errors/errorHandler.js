@@ -1,4 +1,4 @@
-import AppError from './AppError.js';
+import createAppError from './AppError.js';
 
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
@@ -7,26 +7,26 @@ const errorHandler = (err, req, res, next) => {
 
   if (err.name === 'CastError') {
     const message = 'Resource not found';
-    error = new AppError(message, 404);
+    error = createAppError(message, 404);
   }
 
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue)[0];
     const message = `${field} already exists`;
-    error = new AppError(message, 400);
+    error = createAppError(message, 400);
   }
 
   if (err.name === 'ValidationError') {
     const message = Object.values(err.errors).map(val => val.message).join(', ');
-    error = new AppError(message, 400);
+    error = createAppError(message, 400);
   }
 
   if (err.name === 'JsonWebTokenError') {
-    error = new AppError('Invalid token. Please log in again', 401);
+    error = createAppError('Invalid token. Please log in again', 401);
   }
 
   if (err.name === 'TokenExpiredError') {
-    error = new AppError('Your token has expired. Please log in again', 401);
+    error = createAppError('Your token has expired. Please log in again', 401);
   }
 
   res.status(error.statusCode || 500).json({

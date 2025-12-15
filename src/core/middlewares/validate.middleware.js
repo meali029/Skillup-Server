@@ -19,7 +19,7 @@ const validate = (schema, property = 'body') => {
         message: detail.message
       }));
 
-      throw new AppError('Validation failed', 400, true);
+      throw AppError('Validation failed', 400, true);
     }
 
     // Attach validated data to request

@@ -256,6 +256,50 @@ const jobSchema = new mongoose.Schema(
       default: null,
     },
     
+    // Admin Moderation
+    isFlagged: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    
+    flagReason: {
+      type: String,
+    },
+    
+    flagType: {
+      type: String,
+      enum: ['inappropriate', 'spam', 'misleading', 'duplicate', 'other'],
+    },
+    
+    flaggedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    
+    flaggedAt: {
+      type: Date,
+    },
+    
+    moderationStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    
+    rejectionReason: {
+      type: String,
+    },
+    
+    moderatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    
+    moderatedAt: {
+      type: Date,
+    },
+    
     // Search optimization
     searchKeywords: [{
       type: String,
