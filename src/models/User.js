@@ -79,6 +79,20 @@ const userSchema = new mongoose.Schema({
     submittedAt: { type: Date },
     reviewedAt: { type: Date },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    
+    // OCR extracted data
+    ocrData: {
+      extractedCnicNumber: { type: String },
+      extractedName: { type: String },
+      extractedFatherName: { type: String },
+      extractedDateOfBirth: { type: Date },
+      confidence: { type: Number, min: 0, max: 100 },
+      rawText: {
+        front: { type: String },
+        back: { type: String }
+      },
+      extractedAt: { type: Date }
+    }
   },
   
   // Account status
@@ -109,6 +123,30 @@ userSchema.index({ 'cnic.number': 1 }, { sparse: true }); // CNIC number index (
 userSchema.index({ 'cnic.status': 1 }); // CNIC status index for admin filtering
 userSchema.index({ role: 1, isActive: 1 }); // Role and active status
 userSchema.index({ createdAt: -1 }); // Recent users
+
+// Virtual field for CNIC verification status (for easier access)
+userSchema.virtual('cnicVerificationStatus').get(function() {
+  return this.cnic?.status || 'not_submitted';
+});
+
+// Virtual field for CNIC verified date
+userSchema.virtual('cnicVerifiedAt').get(function() {
+  return this.cnic?.reviewedAt;
+});
+
+// Virtual field for CNIC rejection reason
+userSchema.virtual('cnicRejectionReason').get(function() {
+  return this.cnic?.rejectionReason;
+});
+
+// Virtual field for CNIC submitted date
+userSchema.virtual('cnicSubmittedAt').get(function() {
+  return this.cnic?.submittedAt;
+});
+
+// Ensure virtuals are included in JSON and toObject
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
 
 // Update the updatedAt field before saving
 userSchema.pre('save', async function(next) {

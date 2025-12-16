@@ -1,6 +1,7 @@
 import User from '../../models/User.js';
 import createAppError from '../../core/errors/AppError.js';
 import { processCNICImage, deleteCNICImages } from '../../core/utils/imageProcessor.js';
+import CNICTemplateOCR from '../../services/ocr.service.template.js';
 import path from 'path';
 
 /**
@@ -41,6 +42,46 @@ export const submitCNIC = async (userId, files) => {
   const frontImageUrl = frontImagePath.replace(process.cwd(), '').replace(/\\/g, '/');
   const backImageUrl = backImagePath.replace(process.cwd(), '').replace(/\\/g, '/');
 
+  // Template-based OCR extraction (OCR-assisted manual entry)
+  // OCR provides suggestions to admin, but never blocks submission
+  let ocrData = null;
+  
+  try {
+    const extractedData = await CNICTemplateOCR.extractCNICData(frontImagePath, backImagePath);
+    
+    if (extractedData && extractedData.success) {
+      ocrData = {
+        extractedCnicNumber: extractedData.extractedCnicNumber,
+        extractedName: extractedData.extractedName,
+        extractedFatherName: extractedData.extractedFatherName,
+        extractedDateOfBirth: extractedData.extractedDateOfBirth,
+        confidence: extractedData.confidence,
+        extractionMethod: extractedData.extractionMethod,
+        rawText: extractedData.rawText,
+        extractedAt: extractedData.extractedAt
+      };
+      console.log('✅ OCR suggestion available for admin:', {
+        cnicNumber: ocrData.extractedCnicNumber,
+        confidence: ocrData.confidence.toFixed(1) + '%',
+        method: ocrData.extractionMethod
+      });
+    } else {
+      console.log('ℹ️ OCR could not extract CNIC - Admin will enter manually from images');
+      // Store attempt info for debugging
+      if (extractedData) {
+        ocrData = {
+          extractedCnicNumber: null,
+          confidence: 0,
+          extractedAt: new Date(),
+          error: extractedData.error || 'No CNIC number detected'
+        };
+      }
+    }
+  } catch (error) {
+    console.error('OCR processing error (non-blocking):', error.message);
+    console.log('✓ Submission successful - Admin will enter details manually');
+  }
+
   // Update user CNIC data
   user.cnic = {
     ...user.cnic,
@@ -49,6 +90,7 @@ export const submitCNIC = async (userId, files) => {
     status: 'pending',
     submittedAt: new Date(),
     rejectionReason: undefined,
+    ocrData: ocrData || undefined,
   };
 
   await user.save();
@@ -56,6 +98,13 @@ export const submitCNIC = async (userId, files) => {
   return {
     message: 'CNIC submitted successfully and is now pending admin review',
     cnicStatus: user.cnic.status,
+    ocrData: ocrData ? {
+      extractedCnicNumber: ocrData.extractedCnicNumber,
+      extractedName: ocrData.extractedName,
+      extractedFatherName: ocrData.extractedFatherName,
+      extractedDateOfBirth: ocrData.extractedDateOfBirth,
+      confidence: ocrData.confidence
+    } : null,
   };
 };
 
