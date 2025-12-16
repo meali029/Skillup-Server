@@ -45,7 +45,7 @@ export const updateUserProfile = asyncHandler(async (req, res) => {
 
 export const uploadAvatar = asyncHandler(async (req, res) => {
   if (!req.file) {
-    throw new AppError("No file uploaded", 400);
+    throw AppError("No file uploaded", 400);
   }
   
   const avatarUrl = `/uploads/${req.file.filename}`;
@@ -61,7 +61,7 @@ export const uploadAvatar = asyncHandler(async (req, res) => {
 
 export const uploadPortfolioImage = asyncHandler(async (req, res) => {
   if (!req.file) {
-    throw new AppError("No file uploaded", 400);
+    throw AppError("No file uploaded", 400);
   }
   
   const imageUrl = `/uploads/${req.file.filename}`;

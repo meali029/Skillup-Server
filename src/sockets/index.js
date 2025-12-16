@@ -82,10 +82,60 @@ export const initializeSocketServer = (httpServer) => {
     // Handle chat room joins (existing functionality)
     socket.on('join_conversation', (conversationId) => {
       socket.join(`conversation:${conversationId}`);
-      console.log(`[Socket] User ${socket.userId} joined conversation ${conversationId}`);
+      console.log(`[Socket] 🚪 User ${socket.userName} (${socket.userId}) joined conversation ${conversationId}`);
+      
+      // Send confirmation back to client
+      socket.emit('conversation:joined', { conversationId, success: true });
+    });
+
+    socket.on('leave_conversation', (conversationId) => {
+      socket.leave(`conversation:${conversationId}`);
+      console.log(`[Socket] User ${socket.userId} left conversation ${conversationId}`);
+    });
+
+    // Handle typing indicators
+    socket.on('typing:start', ({ conversationId }) => {
+      socket.to(`conversation:${conversationId}`).emit('user:typing', {
+        conversationId,
+        userId: socket.userId,
+        userName: socket.userName,
+      });
+    });
+
+    socket.on('typing:stop', ({ conversationId }) => {
+      socket.to(`conversation:${conversationId}`).emit('user:stopped_typing', {
+        conversationId,
+        userId: socket.userId,
+      });
+    });
+
+    // Handle message read receipts
+    socket.on('message:read', ({ conversationId, messageIds }) => {
+      socket.to(`conversation:${conversationId}`).emit('messages:read', {
+        conversationId,
+        messageIds,
+        readBy: socket.userId,
+        readAt: new Date(),
+      });
+    });
+
+    // Handle user presence
+    socket.on('presence:update', (status) => {
+      // Broadcast to all user's conversations
+      socket.broadcast.emit('user:presence', {
+        userId: socket.userId,
+        status, // 'online', 'away', 'busy'
+        lastSeen: new Date(),
+      });
     });
 
     socket.on('disconnect', () => {
+      // Broadcast offline status
+      socket.broadcast.emit('user:presence', {
+        userId: socket.userId,
+        status: 'offline',
+        lastSeen: new Date(),
+      });
       console.log(`[Socket] User disconnected: ${socket.userName} (${socket.userId})`);
     });
   });
@@ -180,4 +230,89 @@ export const emitToRoom = (room, event, data) => {
   io.to(room).emit(event, data);
 };
 
-export default { initializeSocketServer, getIO, emitJobEvent, emitUserNotification, emitToRoom };
+// Emit message to conversation
+export const emitMessage = (conversationId, message, excludeUserId = null) => {
+  if (!io) {
+    console.warn('[Socket] Socket.io not initialized, skipping message emit');
+    return;
+  }
+
+  const event = 'message:new';
+  const data = message;
+
+  console.log(`[Socket] 📨 Emitting ${event} to conversation:${conversationId}`, {
+    messageId: message._id,
+    excludeUserId,
+    sender: message.sender?._id || message.sender
+  });
+
+  if (excludeUserId) {
+    // Emit to all in conversation except the sender
+    io.to(`conversation:${conversationId}`).except(`user:${excludeUserId}`).emit(event, data);
+  } else {
+    // Emit to all in conversation
+    io.to(`conversation:${conversationId}`).emit(event, data);
+  }
+  
+  console.log(`[Socket] ✅ Message emitted successfully`);
+};
+
+// Emit message edited event
+export const emitMessageEdited = (conversationId, message) => {
+  if (!io) {
+    console.warn('[Socket] Socket.io not initialized');
+    return;
+  }
+
+  io.to(`conversation:${conversationId}`).emit('message:edited', {
+    messageId: message._id,
+    content: message.content,
+    editedAt: message.editedAt || new Date(),
+  });
+};
+
+// Emit message deleted event
+export const emitMessageDeleted = (conversationId, messageId) => {
+  if (!io) {
+    console.warn('[Socket] Socket.io not initialized');
+    return;
+  }
+
+  io.to(`conversation:${conversationId}`).emit('message:deleted', {
+    messageId,
+  });
+};
+
+// Emit contract event
+export const emitContractEvent = (contractId, eventType, data) => {
+  if (!io) {
+    console.warn('[Socket] Socket.io not initialized');
+    return;
+  }
+
+  const { clientId, freelancerId } = data;
+
+  // Emit to both parties
+  [clientId, freelancerId].forEach((userId) => {
+    if (userId) {
+      io.to(`user:${userId}`).emit('contract:updated', {
+        contractId,
+        eventType,
+        data,
+        timestamp: new Date(),
+      });
+    }
+  });
+};
+
+export default {
+  initializeSocketServer,
+  getIO,
+  emitJobEvent,
+  emitUserNotification,
+  emitToRoom,
+  emitMessage,
+  emitMessageEdited,
+  emitMessageDeleted,
+  emitContractEvent,
+};

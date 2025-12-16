@@ -5,7 +5,7 @@ export const getProfile = async (userId) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   return user;
@@ -33,7 +33,7 @@ export const updateProfile = async (userId, updateData) => {
   );
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   return user;
@@ -47,7 +47,7 @@ export const updateAvatar = async (userId, avatarUrl) => {
   );
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   return user;
@@ -57,11 +57,11 @@ export const addPortfolioItem = async (userId, portfolioData) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   if (user.role !== 'freelancer') {
-    throw new AppError("Only freelancers can add portfolio items", 403);
+    throw AppError("Only freelancers can add portfolio items", 403);
   }
   
   user.portfolio.push(portfolioData);
@@ -74,13 +74,13 @@ export const updatePortfolioItem = async (userId, portfolioId, updateData) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   const portfolioItem = user.portfolio.id(portfolioId);
   
   if (!portfolioItem) {
-    throw new AppError("Portfolio item not found", 404);
+    throw AppError("Portfolio item not found", 404);
   }
   
   Object.assign(portfolioItem, updateData);
@@ -93,7 +93,7 @@ export const deletePortfolioItem = async (userId, portfolioId) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   user.portfolio.pull(portfolioId);
@@ -106,11 +106,11 @@ export const getFreelancerProfile = async (userId) => {
   const user = await User.findById(userId).select('-password');
   
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   if (user.role !== 'freelancer') {
-    throw new AppError('User is not a freelancer', 403);
+    throw AppError('User is not a freelancer', 403);
   }
 
   return {

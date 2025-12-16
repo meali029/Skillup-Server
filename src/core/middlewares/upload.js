@@ -89,12 +89,12 @@ const uploadCNIC = multer({
 export const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
-      return next(new AppError("File size too large. Maximum size is 5MB", 400));
+      return next(AppError("File size too large. Maximum size is 5MB", 400));
     }
     if (err.code === "LIMIT_UNEXPECTED_FILE") {
-      return next(new AppError("Too many files uploaded", 400));
+      return next(AppError("Too many files uploaded", 400));
     }
-    return next(new AppError(err.message, 400));
+    return next(AppError(err.message, 400));
   }
   next(err);
 };

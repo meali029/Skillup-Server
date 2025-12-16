@@ -58,6 +58,12 @@ const proposalSchema = new mongoose.Schema(
     suspendedAt: {
       type: Date,
     },
+    
+    // Conversation reference (created when proposal is accepted)
+    conversation: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Conversation",
+    },
   },
   {
     timestamps: true,

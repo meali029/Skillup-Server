@@ -101,12 +101,12 @@ export const getJobById = async (jobId) => {
   }).populate('client', 'name email companyName isActive isBanned');
 
   if (!job) {
-    throw new AppError('Job not found', 404);
+    throw AppError('Job not found', 404);
   }
 
   // Check if client is banned or suspended
   if (!job.client || !job.client.isActive || job.client.isBanned) {
-    throw new AppError('This job is no longer available', 404);
+    throw AppError('This job is no longer available', 404);
   }
 
   await job.incrementViews();
@@ -123,7 +123,7 @@ export const updateJob = async (jobId, userId, updateData) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   if (job.proposalsCount > 0) {
@@ -131,7 +131,7 @@ export const updateJob = async (jobId, userId, updateData) => {
     const hasRestrictedUpdate = restrictedFields.some(field => updateData[field]);
     
     if (hasRestrictedUpdate) {
-      throw new AppError('Cannot update budget or category after receiving proposals', 400);
+      throw AppError('Cannot update budget or category after receiving proposals', 400);
     }
   }
 
@@ -151,7 +151,7 @@ export const deleteJob = async (jobId, userId) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   const wasOpen = job.status === 'open';
@@ -163,7 +163,7 @@ export const deleteJob = async (jobId, userId) => {
     job.isActive = false;
     await job.save();
   } else {
-    throw new AppError('Cannot delete job with active proposals. Close the job instead.', 400);
+    throw AppError('Cannot delete job with active proposals. Close the job instead.', 400);
   }
   
   const updates = { $inc: { postedJobsCount: -1 } };
@@ -217,7 +217,7 @@ export const closeJob = async (jobId, userId) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   const previousStatus = job.status;
@@ -272,11 +272,11 @@ export const completeJob = async (jobId, userId, freelancerId, finalAmount) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   if (job.status !== 'in-progress' && job.status !== 'in-review') {
-    throw new AppError('Only jobs in progress or in review can be completed', 400);
+    throw AppError('Only jobs in progress or in review can be completed', 400);
   }
 
   const wasOpen = job.status === 'open';
@@ -307,11 +307,11 @@ export const getRecommendedJobs = async (userId) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   if (user.role !== 'freelancer') {
-    throw new AppError('User is not a freelancer', 403);
+    throw AppError('User is not a freelancer', 403);
   }
 
   const userSkills = user.skills || [];

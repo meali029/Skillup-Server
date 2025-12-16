@@ -91,32 +91,32 @@ export const completeProfile = asyncHandler(async (req, res) => {
 
   // Validate required fields
   if (!profileData.role) {
-    throw new AppError('Role is required', 400);
+    throw AppError('Role is required', 400);
   }
 
   if (!['freelancer', 'client'].includes(profileData.role)) {
-    throw new AppError('Role must be either freelancer or client', 400);
+    throw AppError('Role must be either freelancer or client', 400);
   }
 
   if (profileData.role === 'freelancer') {
     if (!profileData.skills || profileData.skills.length === 0) {
-      throw new AppError('At least one skill is required for freelancers', 400);
+      throw AppError('At least one skill is required for freelancers', 400);
     }
     if (!profileData.hourlyRate) {
-      throw new AppError('Hourly rate is required for freelancers', 400);
+      throw AppError('Hourly rate is required for freelancers', 400);
     }
     if (!profileData.experience) {
-      throw new AppError('Experience level is required for freelancers', 400);
+      throw AppError('Experience level is required for freelancers', 400);
     }
   } else if (profileData.role === 'client') {
     if (!profileData.companyName) {
-      throw new AppError('Company name is required for clients', 400);
+      throw AppError('Company name is required for clients', 400);
     }
     if (!profileData.companySize) {
-      throw new AppError('Company size is required for clients', 400);
+      throw AppError('Company size is required for clients', 400);
     }
     if (!profileData.industry) {
-      throw new AppError('Industry is required for clients', 400);
+      throw AppError('Industry is required for clients', 400);
     }
   }
 
@@ -165,13 +165,13 @@ export const logout = asyncHandler(async (req, res) => {
 
 export const me = asyncHandler(async (req, res) => {
   if (!req.user) {
-    throw new AppError("Not authenticated", 401);
+    throw AppError("Not authenticated", 401);
   }
   
   const user = await User.findById(req.user.id).select('-password');
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   successResponse(
@@ -224,25 +224,25 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
 // CNIC Verification Controllers - Placeholder exports for backward compatibility
 // The actual CNIC functionality should use the CNIC module routes at /api/cnic/*
 export const uploadCNICFrontController = asyncHandler(async (req, res) => {
-  throw new AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });
 
 export const uploadCNICBackController = asyncHandler(async (req, res) => {
-  throw new AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });
 
 export const submitCNICController = asyncHandler(async (req, res) => {
-  throw new AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });
 
 export const getCNICStatusController = asyncHandler(async (req, res) => {
-  throw new AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });
 
 export const getPendingCNICVerificationsController = asyncHandler(async (req, res) => {
-  throw new AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });
 
 export const verifyCNICController = asyncHandler(async (req, res) => {
-  throw new AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });

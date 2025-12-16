@@ -17,6 +17,8 @@ import createAuthRoutes from "./modules/auth/auth.routes.js";
 import jobRoutes from "./modules/jobs/job.routes.js";
 import proposalRoutes from "./modules/proposals/proposal.routes.js";
 import createProfileRoutes from "./modules/profile/profile.routes.js";
+import contractRoutes from "./modules/contracts/contract.routes.js";
+import messageRoutes from "./modules/messages/message.routes.js";
 import userManagementRoutes from "./modules/admin/users/user-management.routes.js";
 import jobCheckerRoutes from "./modules/admin/jobs/job-checker.routes.js";
 import analyticsRoutes from "./modules/admin/analytics/analytics.routes.js";
@@ -227,6 +229,8 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/proposals", proposalRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/cnic", cnicRoutes);
+app.use("/api/contracts", contractRoutes);
+app.use("/api/messages", messageRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);
@@ -238,7 +242,7 @@ app.use("/api/admin/audit-logs", auditLogRoutes);
 app.use("/api/admin/permissions", permissionsRoutes);
 
 app.all("*", (req, res, next) => {
-  next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
+  next(AppError(`Cannot find ${req.originalUrl} on this server`, 404));
 });
 
 app.use(errorHandler);

@@ -82,8 +82,11 @@ export const getClientProposalDetails = asyncHandler(async (req, res) => {
 });
 
 export const acceptProposal = asyncHandler(async (req, res) => {
-  const proposal = await proposalService.acceptProposal(req.params.id, req.user.id);
-  successResponse(res, { proposal }, "Proposal accepted successfully");
+  const result = await proposalService.acceptProposal(req.params.id, req.user.id);
+  successResponse(res, { 
+    proposal: result.proposal, 
+    conversation: result.conversation 
+  }, "Proposal accepted successfully");
 });
 
 export const rejectProposal = asyncHandler(async (req, res) => {

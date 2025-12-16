@@ -94,7 +94,7 @@ export const getUserById = async (userId) => {
     .lean();
 
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   // Get additional stats
@@ -133,11 +133,11 @@ export const suspendUser = async (userId, reason, adminId) => {
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   if (user.role === 'admin') {
-    throw new AppError('Cannot suspend admin users', 403);
+    throw AppError('Cannot suspend admin users', 403);
   }
 
   user.isActive = false;
@@ -196,11 +196,11 @@ export const banUser = async (userId, reason, adminId) => {
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   if (user.role === 'admin') {
-    throw new AppError('Cannot ban admin users', 403);
+    throw AppError('Cannot ban admin users', 403);
   }
 
   user.isActive = false;
@@ -260,7 +260,7 @@ export const activateUser = async (userId, adminId) => {
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   user.isActive = true;
@@ -329,7 +329,7 @@ export const getUserActivity = async (userId) => {
   const user = await User.findById(userId).select('name email role').lean();
 
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   // Get recent jobs and proposals
