@@ -59,10 +59,10 @@ export const createProposal = async (userId, proposalData) => {
     .populate("jobId", "title description budget budgetMin budgetMax client")
     .populate("freelancerId", "name email avatar skills hourlyRate");
 
-  if (job.bids !== undefined) {
-    job.bids = (job.bids || 0) + 1;
-    await job.save();
-  }
+  // Update job's proposalsCount
+  await Job.findByIdAndUpdate(jobId, {
+    $inc: { proposalsCount: 1 }
+  });
 
   return populatedProposal;
 };
@@ -70,7 +70,7 @@ export const createProposal = async (userId, proposalData) => {
 export const getProposalById = async (proposalId, userId) => {
   const proposal = await Proposal.findById(proposalId)
     .populate("jobId", "title description budget budgetMin budgetMax client status")
-    .populate("freelancerId", "name email avatar skills hourlyRate");
+    .populate("freelancerId", "name email avatar skills hourlyRate isActive isBanned");
 
   if (!proposal) {
     throw new AppError("Proposal not found", 404);
@@ -78,6 +78,11 @@ export const getProposalById = async (proposalId, userId) => {
 
   if (proposal.freelancerId._id.toString() !== userId.toString()) {
     throw new AppError("You don't have permission to view this proposal", 403);
+  }
+
+  // Check if freelancer is banned or suspended
+  if (!proposal.freelancerId.isActive || proposal.freelancerId.isBanned) {
+    throw new AppError("This proposal is no longer available", 404);
   }
 
   return proposal;
@@ -160,11 +165,10 @@ export const withdrawProposal = async (proposalId, userId) => {
   proposal.status = "withdrawn";
   await proposal.save();
 
-  const job = await Job.findById(proposal.jobId);
-  if (job && job.bids !== undefined && job.bids > 0) {
-    job.bids = job.bids - 1;
-    await job.save();
-  }
+  // Decrement job's proposalsCount
+  await Job.findByIdAndUpdate(proposal.jobId, {
+    $inc: { proposalsCount: -1 }
+  });
 
   return { message: "Proposal withdrawn successfully" };
 };
@@ -236,18 +240,23 @@ export const getJobProposals = async (jobId, clientId, filters = {}) => {
   const sortOptions = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
 
   const proposals = await Proposal.find(query)
-    .populate("freelancerId", "name email avatar skills hourlyRate experience bio location")
+    .populate("freelancerId", "name email avatar skills hourlyRate experience bio location isActive isBanned")
     .populate("jobId", "title description budget budgetMin budgetMax")
     .sort(sortOptions)
     .skip(skip)
     .limit(limit);
 
+  // Filter out proposals from banned or suspended users
+  const filteredProposals = proposals.filter(proposal => {
+    return proposal.freelancerId && proposal.freelancerId.isActive && !proposal.freelancerId.isBanned;
+  });
+
   const total = await Proposal.countDocuments(query);
 
   return {
-    proposals,
+    proposals: filteredProposals,
     pagination: {
-      total,
+      total: filteredProposals.length,
       page: parseInt(page),
       limit: parseInt(limit),
       pages: Math.ceil(total / limit),

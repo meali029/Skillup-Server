@@ -9,11 +9,13 @@ const envPath = join(__dirname, '..', '.env');
 
 const result = dotenv.config({ path: envPath });
 
+import { createServer } from 'http';
 import app from "./app.js";
 import connectDB from "./config/db.js";
 // Import all models to register them with Mongoose
 import "./models/index.js";
 import { verifyEmailConfig } from "./core/utils/emailService.js";
+import { initializeSocketServer } from "./sockets/index.js";
 
 connectDB();
 
@@ -21,4 +23,14 @@ connectDB();
 verifyEmailConfig();
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, ()=> console.log(`Server listening on ${PORT}`));
+
+// Create HTTP server
+const httpServer = createServer(app);
+
+// Initialize Socket.io
+initializeSocketServer(httpServer);
+
+httpServer.listen(PORT, ()=> {
+  console.log(`Server listening on ${PORT}`);
+  console.log(`Socket.io server ready`);
+});

@@ -66,7 +66,10 @@ export const getAllJobs = async (filters = {}, options = {}) => {
 
   const [jobs, total] = await Promise.all([
     Job.find(query)
-      .populate('client', 'name email companyName')
+      .populate({
+        path: 'client',
+        select: 'name email companyName isActive isBanned',
+      })
       .sort(search ? { score: { $meta: 'textScore' } } : sort)
       .skip(skip)
       .limit(limit)
@@ -74,13 +77,18 @@ export const getAllJobs = async (filters = {}, options = {}) => {
     Job.countDocuments(query),
   ]);
 
+  // Filter out jobs from banned or suspended users
+  const filteredJobs = jobs.filter(job => {
+    return job.client && job.client.isActive && !job.client.isBanned;
+  });
+
   return {
-    jobs,
+    jobs: filteredJobs,
     pagination: {
       page: parseInt(page),
       limit: parseInt(limit),
-      total,
-      pages: Math.ceil(total / limit),
+      total: filteredJobs.length,
+      pages: Math.ceil(filteredJobs.length / limit),
     },
   };
 };
@@ -90,10 +98,15 @@ export const getJobById = async (jobId) => {
     _id: jobId,
     isActive: true,
     deletedAt: null,
-  }).populate('client', 'name email companyName');
+  }).populate('client', 'name email companyName isActive isBanned');
 
   if (!job) {
     throw new AppError('Job not found', 404);
+  }
+
+  // Check if client is banned or suspended
+  if (!job.client || !job.client.isActive || job.client.isBanned) {
+    throw new AppError('This job is no longer available', 404);
   }
 
   await job.incrementViews();

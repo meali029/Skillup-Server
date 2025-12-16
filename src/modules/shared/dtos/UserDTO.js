@@ -11,6 +11,11 @@ export const formatUser = (user) => {
     provider: user.provider,
   };
 
+  // Include adminRole for admin users
+  if (user.role === 'admin' && user.adminRole) {
+    formattedUser.adminRole = user.adminRole;
+  }
+
   if (user.bio) formattedUser.bio = user.bio;
   if (user.location) formattedUser.location = user.location;
   if (user.phone) formattedUser.phone = user.phone;

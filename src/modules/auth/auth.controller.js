@@ -17,6 +17,7 @@ import { AppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
 import { TokenService } from "../shared/services/index.js";
 import User from "../../models/User.js";
+import { createAuditLog } from "../../core/utils/auditLogger.js";
 
 export const register = asyncHandler(async (req, res) => {
   // Extract all possible registration fields from validatedData or body
@@ -45,6 +46,20 @@ export const login = asyncHandler(async (req, res) => {
   
   res.cookie("token", token, TokenService.getCookieOptions());
   
+  // Log admin login
+  if (user.role === 'admin') {
+    await createAuditLog({
+      adminId: user._id,
+      action: 'ADMIN_LOGIN',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        email: user.email,
+        loginTime: new Date(),
+      },
+    });
+  }
+  
   successResponse(
     res,
     {
@@ -56,17 +71,18 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const googleCallback = asyncHandler(async (req, res) => {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
+  
   if (!req.user) {
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
-    return res.redirect(`${clientUrl}/login?error=authentication_failed`);
+    // Check if there's an error message from passport (e.g., ban/suspension)
+    const errorMessage = req.session?.messages?.[0] || 'authentication_failed';
+    return res.redirect(`${clientUrl}/login?error=${encodeURIComponent(errorMessage)}`);
   }
   
   const token = TokenService.generateToken(req.user);
   res.cookie("token", token, TokenService.getCookieOptions());
   
   const isProfileComplete = req.user.isProfileComplete && req.user.role;
-  
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
   
   if (!isProfileComplete) {
     res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
@@ -132,6 +148,19 @@ export const completeProfile = asyncHandler(async (req, res) => {
 });
 
 export const logout = asyncHandler(async (req, res) => {
+  // Log admin logout
+  if (req.user && req.user.role === 'admin') {
+    await createAuditLog({
+      adminId: req.user.id,
+      action: 'ADMIN_LOGOUT',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        logoutTime: new Date(),
+      },
+    });
+  }
+  
   res.clearCookie("token", { 
     httpOnly: true, 
     sameSite: "lax" 
