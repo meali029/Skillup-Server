@@ -49,6 +49,15 @@ const proposalSchema = new mongoose.Schema(
         },
       },
     ],
+    // Admin suspension tracking
+    suspendedByAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    
+    suspendedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

@@ -147,6 +147,40 @@ export const suspendUser = async (userId, reason, adminId) => {
 
   await user.save();
 
+  // Cascade: Close all jobs if user is a client
+  if (user.role === 'client') {
+    await Job.updateMany(
+      { 
+        client: userId, 
+        status: { $in: ['open', 'draft'] } 
+      },
+      { 
+        $set: { 
+          status: 'closed',
+          suspendedByAdmin: true,
+          suspendedAt: new Date()
+        } 
+      }
+    );
+  }
+
+  // Cascade: Close all proposals if user is a freelancer
+  if (user.role === 'freelancer') {
+    await Proposal.updateMany(
+      { 
+        freelancerId: userId, 
+        status: 'pending' 
+      },
+      { 
+        $set: { 
+          status: 'withdrawn',
+          suspendedByAdmin: true,
+          suspendedAt: new Date()
+        } 
+      }
+    );
+  }
+
   // TODO: Send email notification to user
   // await emailService.sendSuspensionEmail(user.email, reason);
 
@@ -177,6 +211,40 @@ export const banUser = async (userId, reason, adminId) => {
 
   await user.save();
 
+  // Cascade: Close all jobs if user is a client
+  if (user.role === 'client') {
+    await Job.updateMany(
+      { 
+        client: userId, 
+        status: { $in: ['open', 'draft'] } 
+      },
+      { 
+        $set: { 
+          status: 'closed',
+          suspendedByAdmin: true,
+          suspendedAt: new Date()
+        } 
+      }
+    );
+  }
+
+  // Cascade: Close all proposals if user is a freelancer
+  if (user.role === 'freelancer') {
+    await Proposal.updateMany(
+      { 
+        freelancerId: userId, 
+        status: 'pending' 
+      },
+      { 
+        $set: { 
+          status: 'withdrawn',
+          suspendedByAdmin: true,
+          suspendedAt: new Date()
+        } 
+      }
+    );
+  }
+
   // TODO: Send email notification to user
   // await emailService.sendBanEmail(user.email, reason);
 
@@ -205,6 +273,46 @@ export const activateUser = async (userId, adminId) => {
   user.activatedBy = adminId;
 
   await user.save();
+
+  // Cascade: Reopen jobs that were closed due to suspension/ban if user is a client
+  if (user.role === 'client') {
+    await Job.updateMany(
+      { 
+        client: userId, 
+        status: 'closed',
+        suspendedByAdmin: true 
+      },
+      { 
+        $set: { 
+          status: 'open',
+          suspendedByAdmin: false
+        },
+        $unset: { 
+          suspendedAt: '' 
+        }
+      }
+    );
+  }
+
+  // Cascade: Reactivate proposals that were withdrawn due to suspension/ban if user is a freelancer
+  if (user.role === 'freelancer') {
+    await Proposal.updateMany(
+      { 
+        freelancerId: userId, 
+        status: 'withdrawn',
+        suspendedByAdmin: true 
+      },
+      { 
+        $set: { 
+          status: 'pending',
+          suspendedByAdmin: false
+        },
+        $unset: { 
+          suspendedAt: '' 
+        }
+      }
+    );
+  }
 
   // TODO: Send email notification to user
   // await emailService.sendActivationEmail(user.email);

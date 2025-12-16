@@ -59,7 +59,9 @@ function createAuthRoutes() {
           session: true
         }, (err, user, info) => {
           if (err) {
-            return next(err);
+            // Pass ban/suspension error messages to the client
+            const errorMessage = encodeURIComponent(err.message || 'authentication_failed');
+            return res.redirect(`${clientURL}/login?error=${errorMessage}`);
           }
           
           if (!user) {

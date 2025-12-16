@@ -300,6 +300,16 @@ const jobSchema = new mongoose.Schema(
       type: Date,
     },
     
+    // Admin suspension tracking
+    suspendedByAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    
+    suspendedAt: {
+      type: Date,
+    },
+    
     // Search optimization
     searchKeywords: [{
       type: String,

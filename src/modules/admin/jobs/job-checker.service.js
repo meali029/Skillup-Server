@@ -1,6 +1,7 @@
 import Job from '../../../models/Job.js';
 import User from '../../../models/User.js';
 import createAppError from '../../../core/errors/AppError.js';
+import { emitJobEvent } from '../../../sockets/index.js';
 
 /**
  * Get all jobs with filters and pagination
@@ -145,7 +146,16 @@ export const rejectJob = async (jobId, reason, adminId) => {
 
   await job.save();
 
-  // TODO: Send notification to client about rejection
+  // Emit socket event
+  const admin = await User.findById(adminId).select('name role');
+  emitJobEvent('job:rejected', {
+    jobId: job._id,
+    clientId: job.client.toString(),
+    action: 'rejected',
+    job,
+    moderator: admin,
+    reason,
+  });
   
   return job;
 };
@@ -170,21 +180,43 @@ export const flagJob = async (jobId, flagData, adminId) => {
 
   await job.save();
 
+  // Emit socket event
+  const admin = await User.findById(adminId).select('name role');
+  emitJobEvent('job:flagged', {
+    jobId: job._id,
+    clientId: job.client.toString(),
+    action: 'flagged',
+    job,
+    moderator: admin,
+    reason,
+  });
+
   return job;
 };
 
 /**
  * Toggle featured status
  */
-export const toggleFeature = async (jobId) => {
+export const toggleFeature = async (jobId, adminId) => {
   const job = await Job.findById(jobId);
 
   if (!job) {
     throw createAppError('Job not found', 404);
   }
 
+  const wasFeatured = job.isFeatured;
   job.isFeatured = !job.isFeatured;
   await job.save();
+
+  // Emit socket event
+  const admin = await User.findById(adminId).select('name role');
+  emitJobEvent(job.isFeatured ? 'job:featured' : 'job:unfeatured', {
+    jobId: job._id,
+    clientId: job.client.toString(),
+    action: job.isFeatured ? 'featured' : 'unfeatured',
+    job,
+    moderator: admin,
+  });
 
   return job;
 };

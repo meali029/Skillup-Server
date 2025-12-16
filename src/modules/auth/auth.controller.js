@@ -58,17 +58,18 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const googleCallback = asyncHandler(async (req, res) => {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
+  
   if (!req.user) {
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
-    return res.redirect(`${clientUrl}/login?error=authentication_failed`);
+    // Check if there's an error message from passport (e.g., ban/suspension)
+    const errorMessage = req.session?.messages?.[0] || 'authentication_failed';
+    return res.redirect(`${clientUrl}/login?error=${encodeURIComponent(errorMessage)}`);
   }
   
   const token = TokenService.generateToken(req.user);
   res.cookie("token", token, TokenService.getCookieOptions());
   
   const isProfileComplete = req.user.isProfileComplete && req.user.role;
-  
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
   
   if (!isProfileComplete) {
     res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
