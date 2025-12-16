@@ -1,4 +1,17 @@
-import { registerLocal, loginLocal, completeProfile as completeProfileService, requestPasswordReset, verifyOTPService, resetPassword } from "./auth.service.js";
+import { 
+  registerLocal, 
+  loginLocal, 
+  completeProfile as completeProfileService, 
+  requestPasswordReset, 
+  verifyOTPService, 
+  resetPassword,
+  submitCNIC,
+  uploadCNICFront,
+  uploadCNICBack,
+  getCNICStatus,
+  verifyCNIC,
+  getPendingCNICVerifications
+} from "./auth.service.js";
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
 import { AppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
@@ -210,6 +223,121 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
     res,
     null,
     result.message,
+    200
+  );
+});
+
+// CNIC Verification Controllers
+export const uploadCNICFrontController = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    throw new AppError("No file uploaded", 400);
+  }
+  
+  const imagePath = `/uploads/${req.file.filename}`;
+  const result = await uploadCNICFront(req.user.id, imagePath);
+  
+  successResponse(
+    res,
+    { imagePath: result.imagePath },
+    result.message,
+    200
+  );
+});
+
+export const uploadCNICBackController = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    throw new AppError("No file uploaded", 400);
+  }
+  
+  const imagePath = `/uploads/${req.file.filename}`;
+  const result = await uploadCNICBack(req.user.id, imagePath);
+  
+  successResponse(
+    res,
+    { imagePath: result.imagePath },
+    result.message,
+    200
+  );
+});
+
+export const submitCNICController = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { cnicNumber } = req.validatedData;
+  
+  // Check if both images are uploaded
+  const user = await User.findById(userId).select('cnicFrontImage cnicBackImage');
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+  
+  if (!user.cnicFrontImage || !user.cnicBackImage) {
+    throw new AppError('Both CNIC front and back images are required before submission', 400);
+  }
+  
+  const updatedUser = await submitCNIC(userId, cnicNumber, user.cnicFrontImage, user.cnicBackImage);
+  
+  successResponse(
+    res,
+    { 
+      user: formatUser(updatedUser),
+      cnicStatus: updatedUser.cnicVerificationStatus 
+    },
+    'CNIC submitted for verification successfully',
+    200
+  );
+});
+
+export const getCNICStatusController = asyncHandler(async (req, res) => {
+  const status = await getCNICStatus(req.user.id);
+  
+  successResponse(
+    res,
+    status,
+    'CNIC status retrieved successfully',
+    200
+  );
+});
+
+// Admin CNIC Verification Controllers
+export const getPendingCNICVerificationsController = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  
+  const result = await getPendingCNICVerifications(req.user.id, page, limit);
+  
+  // Format users with CNIC details for admin review
+  const verifications = result.users.map(user => {
+    const formatted = formatUser(user);
+    // Include CNIC details for admin review
+    formatted.cnicNumber = user.cnicNumber;
+    formatted.cnicFrontImage = user.cnicFrontImage;
+    formatted.cnicBackImage = user.cnicBackImage;
+    formatted.cnicSubmittedAt = user.cnicSubmittedAt;
+    return formatted;
+  });
+  
+  successResponse(
+    res,
+    {
+      verifications,
+      pagination: result.pagination
+    },
+    'Pending CNIC verifications retrieved successfully',
+    200
+  );
+});
+
+export const verifyCNICController = asyncHandler(async (req, res) => {
+  const adminId = req.user.id;
+  const userId = req.params.userId;
+  const { status, rejectionReason } = req.validatedData;
+  
+  const updatedUser = await verifyCNIC(adminId, userId, status, rejectionReason);
+  
+  successResponse(
+    res,
+    { user: formatUser(updatedUser) },
+    `CNIC ${status === 'verified' ? 'verified' : 'rejected'} successfully`,
     200
   );
 });

@@ -39,6 +39,14 @@ export const formatUser = (user) => {
 
   formattedUser.createdAt = user.createdAt;
 
+  // CNIC Verification Status (exclude sensitive data like CNIC number and images)
+  if (user.cnicVerificationStatus) {
+    formattedUser.cnicVerificationStatus = user.cnicVerificationStatus;
+    if (user.cnicVerifiedAt) formattedUser.cnicVerifiedAt = user.cnicVerifiedAt;
+    if (user.cnicRejectionReason) formattedUser.cnicRejectionReason = user.cnicRejectionReason;
+    if (user.cnicSubmittedAt) formattedUser.cnicSubmittedAt = user.cnicSubmittedAt;
+  }
+
   return formattedUser;
 };
 
