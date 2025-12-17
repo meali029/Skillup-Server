@@ -1,4 +1,11 @@
 import mongoose from 'mongoose';
+import {
+  CONTRACT_STATUS,
+  MILESTONE_STATUS,
+  PAYMENT_TYPE,
+  MILESTONE_EDITABLE_STATUSES,
+  isStatusTransitionAllowed,
+} from '../modules/contracts/contract.constants.js';
 
 const milestoneSchema = new mongoose.Schema(
   {
@@ -21,8 +28,8 @@ const milestoneSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'in_progress', 'completed', 'disputed'],
-      default: 'pending',
+      enum: Object.values(MILESTONE_STATUS),
+      default: MILESTONE_STATUS.PENDING,
     },
     completedAt: {
       type: Date,
@@ -76,15 +83,8 @@ const contractSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: [
-        'pending',
-        'active',
-        'completed',
-        'cancelled',
-        'disputed',
-        'terminated',
-      ],
-      default: 'pending',
+      enum: Object.values(CONTRACT_STATUS),
+      default: CONTRACT_STATUS.PENDING,
       index: true,
     },
     startDate: {
@@ -102,8 +102,8 @@ const contractSchema = new mongoose.Schema(
     },
     paymentType: {
       type: String,
-      enum: ['fixed', 'hourly', 'milestone'],
-      default: 'fixed',
+      enum: Object.values(PAYMENT_TYPE),
+      default: PAYMENT_TYPE.FIXED,
     },
     hourlyRate: {
       type: Number,
@@ -156,19 +156,86 @@ contractSchema.virtual('conversation', {
 });
 
 // Methods
+
+/**
+ * Check if a user can VIEW the contract (read-only access)
+ * Business Rule: Both client and freelancer can view their contracts
+ * Handles both populated (User object) and unpopulated (ObjectId) cases
+ * @param {string|ObjectId} userId - The user ID to check
+ * @returns {boolean} - Whether the user can view the contract
+ */
+contractSchema.methods.canBeViewedBy = function (userId) {
+  if (!userId || !this.client || !this.freelancer) return false;
+  
+  // Safely extract IDs - handle both ObjectId and populated User documents
+  const userIdStr = userId.toString();
+  const clientIdStr = (this.client._id || this.client).toString();
+  const freelancerIdStr = (this.freelancer._id || this.freelancer).toString();
+  
+  return clientIdStr === userIdStr || freelancerIdStr === userIdStr;
+};
+
+/**
+ * Check if a user can MODIFY the contract (write access)
+ * Business Rule: Both client and freelancer can modify their contracts
+ * Note: Specific modifications may have additional role-based restrictions
+ * Handles both populated (User object) and unpopulated (ObjectId) cases
+ * @param {string|ObjectId} userId - The user ID to check
+ * @returns {boolean} - Whether the user can modify the contract
+ */
 contractSchema.methods.canBeModifiedBy = function (userId) {
-  return (
-    this.client.toString() === userId.toString() ||
-    this.freelancer.toString() === userId.toString()
-  );
+  if (!userId || !this.client || !this.freelancer) return false;
+  
+  // Safely extract IDs - handle both ObjectId and populated User documents
+  const userIdStr = userId.toString();
+  const clientIdStr = (this.client._id || this.client).toString();
+  const freelancerIdStr = (this.freelancer._id || this.freelancer).toString();
+  
+  return clientIdStr === userIdStr || freelancerIdStr === userIdStr;
 };
 
 contractSchema.methods.isActive = function () {
-  return this.status === 'active';
+  return this.status === CONTRACT_STATUS.ACTIVE;
 };
 
+/**
+ * Check if milestones can be added to this contract
+ * Business Rule: Milestones can only be added when contract is pending or active
+ */
 contractSchema.methods.canAddMilestone = function () {
-  return ['pending', 'active'].includes(this.status);
+  return MILESTONE_EDITABLE_STATUSES.includes(this.status);
+};
+
+/**
+ * Validate if a status transition is allowed
+ * Business Rule: Enforces state machine - certain transitions are forbidden
+ * @param {string} newStatus - The desired new status
+ * @returns {boolean} - Whether the transition is allowed
+ */
+contractSchema.methods.canTransitionTo = function (newStatus) {
+  return isStatusTransitionAllowed(this.status, newStatus);
+};
+
+/**
+ * Check if the client is the given user
+ * Handles both populated (User object) and unpopulated (ObjectId) cases
+ */
+contractSchema.methods.isClient = function (userId) {
+  if (!this.client || !userId) return false;
+  const clientIdStr = (this.client._id || this.client).toString();
+  const userIdStr = userId.toString();
+  return clientIdStr === userIdStr;
+};
+
+/**
+ * Check if the freelancer is the given user
+ * Handles both populated (User object) and unpopulated (ObjectId) cases
+ */
+contractSchema.methods.isFreelancer = function (userId) {
+  if (!this.freelancer || !userId) return false;
+  const freelancerIdStr = (this.freelancer._id || this.freelancer).toString();
+  const userIdStr = userId.toString();
+  return freelancerIdStr === userIdStr;
 };
 
 contractSchema.methods.calculateProgress = function () {
@@ -191,18 +258,36 @@ contractSchema.statics.findByUser = function (userId, options = {}) {
 contractSchema.statics.findActiveByUser = function (userId) {
   return this.find({
     $or: [{ client: userId }, { freelancer: userId }],
-    status: 'active',
+    status: CONTRACT_STATUS.ACTIVE,
   }).sort({ createdAt: -1 });
 };
 
-// Pre-save hook
+// Pre-save hook to enforce business rules and auto-populate fields
 contractSchema.pre('save', function (next) {
-  if (this.isModified('status') && this.status === 'active' && !this.startDate) {
+  // Business Rule: Auto-set startDate when contract becomes active
+  if (this.isModified('status') && this.status === CONTRACT_STATUS.ACTIVE && !this.startDate) {
     this.startDate = new Date();
   }
-  if (this.isModified('status') && this.status === 'completed' && !this.completedAt) {
+  
+  // Business Rule: Auto-set completedAt when contract is completed
+  if (this.isModified('status') && this.status === CONTRACT_STATUS.COMPLETED && !this.completedAt) {
     this.completedAt = new Date();
   }
+  
+  // Business Rule: Validate endDate is not before startDate
+  if (this.endDate && this.startDate && this.endDate < this.startDate) {
+    return next(new Error('End date cannot be before start date'));
+  }
+  
+  // Business Rule: Auto-set milestone completedAt when status changes to completed
+  if (this.isModified('milestones')) {
+    this.milestones.forEach((milestone) => {
+      if (milestone.status === MILESTONE_STATUS.COMPLETED && !milestone.completedAt) {
+        milestone.completedAt = new Date();
+      }
+    });
+  }
+  
   next();
 });
 
