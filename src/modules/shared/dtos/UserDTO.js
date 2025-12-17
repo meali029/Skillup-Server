@@ -11,6 +11,11 @@ export const formatUser = (user) => {
     provider: user.provider,
   };
 
+  // Include adminRole for admin users
+  if (user.role === 'admin' && user.adminRole) {
+    formattedUser.adminRole = user.adminRole;
+  }
+
   if (user.bio) formattedUser.bio = user.bio;
   if (user.location) formattedUser.location = user.location;
   if (user.phone) formattedUser.phone = user.phone;
@@ -33,6 +38,14 @@ export const formatUser = (user) => {
   }
 
   formattedUser.createdAt = user.createdAt;
+
+  // CNIC Verification Status (exclude sensitive data like CNIC number and images)
+  if (user.cnicVerificationStatus) {
+    formattedUser.cnicVerificationStatus = user.cnicVerificationStatus;
+    if (user.cnicVerifiedAt) formattedUser.cnicVerifiedAt = user.cnicVerifiedAt;
+    if (user.cnicRejectionReason) formattedUser.cnicRejectionReason = user.cnicRejectionReason;
+    if (user.cnicSubmittedAt) formattedUser.cnicSubmittedAt = user.cnicSubmittedAt;
+  }
 
   return formattedUser;
 };

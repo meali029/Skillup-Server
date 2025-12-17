@@ -1,13 +1,32 @@
 import express from "express";
 import passport from "passport";
-import { register, login, logout, me, googleCallback, completeProfile, requestPasswordResetController, verifyOTPController, resetPasswordController } from "./auth.controller.js";
-import { authenticate } from "../../core/middlewares/index.js";
+import { 
+  register, 
+  login, 
+  logout, 
+  me, 
+  googleCallback, 
+  completeProfile, 
+  requestPasswordResetController, 
+  verifyOTPController, 
+  resetPasswordController,
+  uploadCNICFrontController,
+  uploadCNICBackController,
+  submitCNICController,
+  getCNICStatusController,
+  getPendingCNICVerificationsController,
+  verifyCNICController
+} from "./auth.controller.js";
+import { authenticate, authorize } from "../../core/middlewares/index.js";
+import { uploadCNICSingle, handleUploadError } from "../../core/middlewares/upload.js";
 import { 
   validateRegister, 
   validateLogin,
   validateRequestPasswordReset,
   validateVerifyOTP,
-  validateResetPassword
+  validateResetPassword,
+  validateSubmitCNIC,
+  validateVerifyCNIC
 } from "./auth.validation.js";
 
 function createAuthRoutes() {
@@ -25,6 +44,16 @@ function createAuthRoutes() {
   router.post("/verify-otp", validateVerifyOTP, verifyOTPController);
   router.post("/reset-password", validateResetPassword, resetPasswordController);
 
+  // CNIC Verification Routes (User)
+  router.post("/cnic/front", authenticate, uploadCNICSingle("cnicFront"), handleUploadError, uploadCNICFrontController);
+  router.post("/cnic/back", authenticate, uploadCNICSingle("cnicBack"), handleUploadError, uploadCNICBackController);
+  router.post("/cnic/submit", authenticate, validateSubmitCNIC, submitCNICController);
+  router.get("/cnic/status", authenticate, getCNICStatusController);
+
+  // CNIC Verification Routes (Admin)
+  router.get("/admin/cnic/pending", authenticate, authorize('admin'), getPendingCNICVerificationsController);
+  router.post("/admin/cnic/verify/:userId", authenticate, authorize('admin'), validateVerifyCNIC, verifyCNICController);
+
   router.get("/oauth-config", (req, res) => {
     res.json({
       hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
@@ -40,7 +69,16 @@ function createAuthRoutes() {
   
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     router.get("/google", 
-      passport.authenticate("google", { scope: ["profile", "email"] })
+      (req, res, next) => {
+        // Pass through the prompt parameter to force account selection
+        const prompt = req.query.prompt || 'consent';
+        
+        passport.authenticate("google", {
+          scope: ["profile", "email"],
+          prompt: prompt, // 'select_account' forces Google to show account picker
+          session: false,
+        })(req, res, next);
+      }
     );
 
     router.get("/google/callback",
@@ -50,7 +88,9 @@ function createAuthRoutes() {
           session: true
         }, (err, user, info) => {
           if (err) {
-            return next(err);
+            // Pass ban/suspension error messages to the client
+            const errorMessage = encodeURIComponent(err.message || 'authentication_failed');
+            return res.redirect(`${clientURL}/login?error=${errorMessage}`);
           }
           
           if (!user) {

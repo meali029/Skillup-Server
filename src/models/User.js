@@ -11,6 +11,11 @@ const userSchema = new mongoose.Schema({
   googleId: { type: String }, // Google OAuth ID
   avatar: { type: String },
   role: { type: String, enum: ["freelancer", "client", "admin"] }, // Not required - user selects during profile completion
+  adminRole: { 
+    type: String, 
+    enum: ["super_admin", "admin", "moderator"],
+    // Only set if role is "admin"
+  },
   provider: { type: String, enum: ["local", "google"], default: "local" },
   
   // Profile information
@@ -56,8 +61,53 @@ const userSchema = new mongoose.Schema({
   isProfileComplete: { type: Boolean, default: false },
   isEmailVerified: { type: Boolean, default: false },
   
+  // CNIC Verification fields
+  cnic: {
+    number: { type: String }, // Format: XXXXX-XXXXXXX-X
+    fullName: { type: String },
+    dateOfBirth: { type: Date },
+    issueDate: { type: Date },
+    expiryDate: { type: Date },
+    frontImage: { type: String }, // URL to front image
+    backImage: { type: String }, // URL to back image
+    status: {
+      type: String,
+      enum: ['not_submitted', 'pending', 'under_review', 'verified', 'rejected', 'reupload_requested'],
+      default: 'not_submitted'
+    },
+    rejectionReason: { type: String },
+    submittedAt: { type: Date },
+    reviewedAt: { type: Date },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    
+    // OCR extracted data
+    ocrData: {
+      extractedCnicNumber: { type: String },
+      extractedName: { type: String },
+      extractedFatherName: { type: String },
+      extractedDateOfBirth: { type: Date },
+      confidence: { type: Number, min: 0, max: 100 },
+      rawText: {
+        front: { type: String },
+        back: { type: String }
+      },
+      extractedAt: { type: Date }
+    }
+  },
+  
   // Account status
   isActive: { type: Boolean, default: true },
+  
+  // Admin actions - suspension and ban
+  isBanned: { type: Boolean, default: false },
+  suspensionReason: { type: String },
+  banReason: { type: String },
+  suspendedAt: { type: Date },
+  bannedAt: { type: Date },
+  suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  bannedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  activatedAt: { type: Date },
+  activatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   
   // Password reset OTP fields
   resetPasswordOTP: { type: String, select: false },
@@ -67,9 +117,51 @@ const userSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+// Indexes for efficient querying
+userSchema.index({ email: 1 }, { unique: true }); // Email unique index
+userSchema.index({ 'cnic.number': 1 }, { sparse: true }); // CNIC number index (sparse for users without CNIC)
+userSchema.index({ 'cnic.status': 1 }); // CNIC status index for admin filtering
+userSchema.index({ role: 1, isActive: 1 }); // Role and active status
+userSchema.index({ createdAt: -1 }); // Recent users
+
+// Virtual field for CNIC verification status (for easier access)
+userSchema.virtual('cnicVerificationStatus').get(function() {
+  return this.cnic?.status || 'not_submitted';
+});
+
+// Virtual field for CNIC verified date
+userSchema.virtual('cnicVerifiedAt').get(function() {
+  return this.cnic?.reviewedAt;
+});
+
+// Virtual field for CNIC rejection reason
+userSchema.virtual('cnicRejectionReason').get(function() {
+  return this.cnic?.rejectionReason;
+});
+
+// Virtual field for CNIC submitted date
+userSchema.virtual('cnicSubmittedAt').get(function() {
+  return this.cnic?.submittedAt;
+});
+
+// Ensure virtuals are included in JSON and toObject
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
+
 // Update the updatedAt field before saving
 userSchema.pre('save', async function(next) {
   this.updatedAt = new Date();
+  
+  // Validate: If role is 'admin', adminRole must be set
+  if (this.role === 'admin' && !this.adminRole) {
+    const error = new Error('Admin users must have an adminRole (super_admin, admin, or moderator)');
+    return next(error);
+  }
+  
+  // Validate: If role is not 'admin', adminRole should not be set
+  if (this.role !== 'admin' && this.adminRole) {
+    this.adminRole = undefined; // Clear adminRole for non-admin users
+  }
   
   // Hash password if it's modified or new
   if (this.isModified('password') && this.password) {

@@ -43,7 +43,31 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer
+// File filter for CNIC documents (images and PDFs)
+const cnicFileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    "image/jpeg", 
+    "image/jpg", 
+    "image/png", 
+    "image/gif", 
+    "image/webp",
+    "application/pdf"
+  ];
+  
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new AppError(
+        "Invalid file type. Only JPEG, PNG, GIF, WebP images, and PDF documents are allowed for CNIC verification",
+        400
+      ),
+      false
+    );
+  }
+};
+
+// Configure multer for images
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
@@ -52,16 +76,25 @@ const upload = multer({
   },
 });
 
+// Configure multer for CNIC documents (larger file size allowed)
+const uploadCNIC = multer({
+  storage: storage,
+  fileFilter: cnicFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit for CNIC documents
+  },
+});
+
 // Middleware to handle multer errors
 export const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
-      return next(new AppError("File size too large. Maximum size is 5MB", 400));
+      return next(AppError("File size too large. Maximum size is 5MB", 400));
     }
     if (err.code === "LIMIT_UNEXPECTED_FILE") {
-      return next(new AppError("Too many files uploaded", 400));
+      return next(AppError("Too many files uploaded", 400));
     }
-    return next(new AppError(err.message, 400));
+    return next(AppError(err.message, 400));
   }
   next(err);
 };
@@ -69,5 +102,9 @@ export const handleUploadError = (err, req, res, next) => {
 // Export configured upload middleware
 export const uploadSingle = (fieldName) => upload.single(fieldName);
 export const uploadMultiple = (fieldName, maxCount) => upload.array(fieldName, maxCount);
+
+// CNIC document upload middleware
+export const uploadCNICSingle = (fieldName) => uploadCNIC.single(fieldName);
+export const uploadCNICMultiple = (fieldName, maxCount) => uploadCNIC.array(fieldName, maxCount);
 
 export default upload;

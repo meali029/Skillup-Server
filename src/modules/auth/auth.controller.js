@@ -1,9 +1,17 @@
-import { registerLocal, loginLocal, completeProfile as completeProfileService, requestPasswordReset, verifyOTPService, resetPassword } from "./auth.service.js";
+import { 
+  registerLocal, 
+  loginLocal, 
+  completeProfile as completeProfileService, 
+  requestPasswordReset, 
+  verifyOTPService, 
+  resetPassword
+} from "./auth.service.js";
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
 import { AppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
 import { TokenService } from "../shared/services/index.js";
 import User from "../../models/User.js";
+import { createAuditLog } from "../../core/utils/auditLogger.js";
 
 export const register = asyncHandler(async (req, res) => {
   // Extract all possible registration fields from validatedData or body
@@ -32,6 +40,20 @@ export const login = asyncHandler(async (req, res) => {
   
   res.cookie("token", token, TokenService.getCookieOptions());
   
+  // Log admin login
+  if (user.role === 'admin') {
+    await createAuditLog({
+      adminId: user._id,
+      action: 'ADMIN_LOGIN',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        email: user.email,
+        loginTime: new Date(),
+      },
+    });
+  }
+  
   successResponse(
     res,
     {
@@ -43,17 +65,18 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const googleCallback = asyncHandler(async (req, res) => {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
+  
   if (!req.user) {
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
-    return res.redirect(`${clientUrl}/login?error=authentication_failed`);
+    // Check if there's an error message from passport (e.g., ban/suspension)
+    const errorMessage = req.session?.messages?.[0] || 'authentication_failed';
+    return res.redirect(`${clientUrl}/login?error=${encodeURIComponent(errorMessage)}`);
   }
   
   const token = TokenService.generateToken(req.user);
   res.cookie("token", token, TokenService.getCookieOptions());
   
   const isProfileComplete = req.user.isProfileComplete && req.user.role;
-  
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
   
   if (!isProfileComplete) {
     res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
@@ -68,32 +91,32 @@ export const completeProfile = asyncHandler(async (req, res) => {
 
   // Validate required fields
   if (!profileData.role) {
-    throw new AppError('Role is required', 400);
+    throw AppError('Role is required', 400);
   }
 
   if (!['freelancer', 'client'].includes(profileData.role)) {
-    throw new AppError('Role must be either freelancer or client', 400);
+    throw AppError('Role must be either freelancer or client', 400);
   }
 
   if (profileData.role === 'freelancer') {
     if (!profileData.skills || profileData.skills.length === 0) {
-      throw new AppError('At least one skill is required for freelancers', 400);
+      throw AppError('At least one skill is required for freelancers', 400);
     }
     if (!profileData.hourlyRate) {
-      throw new AppError('Hourly rate is required for freelancers', 400);
+      throw AppError('Hourly rate is required for freelancers', 400);
     }
     if (!profileData.experience) {
-      throw new AppError('Experience level is required for freelancers', 400);
+      throw AppError('Experience level is required for freelancers', 400);
     }
   } else if (profileData.role === 'client') {
     if (!profileData.companyName) {
-      throw new AppError('Company name is required for clients', 400);
+      throw AppError('Company name is required for clients', 400);
     }
     if (!profileData.companySize) {
-      throw new AppError('Company size is required for clients', 400);
+      throw AppError('Company size is required for clients', 400);
     }
     if (!profileData.industry) {
-      throw new AppError('Industry is required for clients', 400);
+      throw AppError('Industry is required for clients', 400);
     }
   }
 
@@ -119,6 +142,19 @@ export const completeProfile = asyncHandler(async (req, res) => {
 });
 
 export const logout = asyncHandler(async (req, res) => {
+  // Log admin logout
+  if (req.user && req.user.role === 'admin') {
+    await createAuditLog({
+      adminId: req.user.id,
+      action: 'ADMIN_LOGOUT',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        logoutTime: new Date(),
+      },
+    });
+  }
+  
   res.clearCookie("token", { 
     httpOnly: true, 
     sameSite: "lax" 
@@ -129,13 +165,13 @@ export const logout = asyncHandler(async (req, res) => {
 
 export const me = asyncHandler(async (req, res) => {
   if (!req.user) {
-    throw new AppError("Not authenticated", 401);
+    throw AppError("Not authenticated", 401);
   }
   
   const user = await User.findById(req.user.id).select('-password');
   
   if (!user) {
-    throw new AppError("User not found", 404);
+    throw AppError("User not found", 404);
   }
   
   successResponse(
@@ -183,4 +219,30 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
     result.message,
     200
   );
+});
+
+// CNIC Verification Controllers - Placeholder exports for backward compatibility
+// The actual CNIC functionality should use the CNIC module routes at /api/cnic/*
+export const uploadCNICFrontController = asyncHandler(async (req, res) => {
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+});
+
+export const uploadCNICBackController = asyncHandler(async (req, res) => {
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+});
+
+export const submitCNICController = asyncHandler(async (req, res) => {
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+});
+
+export const getCNICStatusController = asyncHandler(async (req, res) => {
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+});
+
+export const getPendingCNICVerificationsController = asyncHandler(async (req, res) => {
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
+});
+
+export const verifyCNICController = asyncHandler(async (req, res) => {
+  throw AppError("Please use /api/cnic/* routes for CNIC operations", 400);
 });

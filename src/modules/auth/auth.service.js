@@ -14,7 +14,7 @@ export const registerLocal = async (registrationData) => {
 
   const exists = await User.findOne({ email });
   if (exists) {
-    throw new AppError("Email already registered", 400);
+    throw AppError("Email already registered", 400);
   }
 
   // Build user data object
@@ -67,12 +67,12 @@ export const completeProfile = async (userId, profileData) => {
 
   const user = await User.findById(userId);
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   // Validate role
   if (!role || !['freelancer', 'client'].includes(role)) {
-    throw new AppError('Valid role (freelancer or client) is required', 400);
+    throw AppError('Valid role (freelancer or client) is required', 400);
   }
 
   // Update basic fields
@@ -85,13 +85,13 @@ export const completeProfile = async (userId, profileData) => {
   if (role === 'freelancer') {
     // Validate freelancer required fields
     if (!skills || !Array.isArray(skills) || skills.length === 0) {
-      throw new AppError('At least one skill is required for freelancers', 400);
+      throw AppError('At least one skill is required for freelancers', 400);
     }
     if (!hourlyRate || hourlyRate <= 0) {
-      throw new AppError('Valid hourly rate is required for freelancers', 400);
+      throw AppError('Valid hourly rate is required for freelancers', 400);
     }
     if (!experience) {
-      throw new AppError('Experience level is required for freelancers', 400);
+      throw AppError('Experience level is required for freelancers', 400);
     }
 
     user.skills = skills;
@@ -106,13 +106,13 @@ export const completeProfile = async (userId, profileData) => {
   } else if (role === 'client') {
     // Validate client required fields
     if (!companyName) {
-      throw new AppError('Company name is required for clients', 400);
+      throw AppError('Company name is required for clients', 400);
     }
     if (!companySize) {
-      throw new AppError('Company size is required for clients', 400);
+      throw AppError('Company size is required for clients', 400);
     }
     if (!industry) {
-      throw new AppError('Industry is required for clients', 400);
+      throw AppError('Industry is required for clients', 400);
     }
 
     user.companyName = companyName;
@@ -136,7 +136,7 @@ export const completeProfile = async (userId, profileData) => {
 
   // Double-check that profile is actually complete
   if (!savedUser.isProfileComplete) {
-    throw new AppError('Failed to complete profile', 500);
+    throw AppError('Failed to complete profile', 500);
   }
 
   return savedUser;
@@ -146,13 +146,29 @@ export const loginLocal = async ({ email, password }) => {
   const user = await User.findOne({ email }).select('+password');
   
   if (!user || user.provider !== "local") {
-    throw new AppError("Invalid credentials", 401);
+    throw AppError("Invalid credentials", 401);
   }
   
   const isPasswordValid = await user.comparePassword(password);
   
   if (!isPasswordValid) {
-    throw new AppError("Invalid credentials", 401);
+    throw AppError("Invalid credentials", 401);
+  }
+
+  // Check if user is banned
+  if (user.isBanned) {
+    throw AppError(
+      "Your account has been banned. Please contact our help center for assistance.",
+      403
+    );
+  }
+
+  // Check if user is suspended
+  if (!user.isActive) {
+    throw AppError(
+      "Your account has been suspended. Please contact our help center for assistance.",
+      403
+    );
   }
   
   // Remove password from user object
@@ -177,7 +193,7 @@ export const requestPasswordReset = async (email) => {
   
   // Check if user signed up with OAuth (Google, etc.)
   if (user.provider !== "local") {
-    throw new AppError(
+    throw AppError(
       `This account is linked with ${user.provider === 'google' ? 'Google' : user.provider}. Please sign in using ${user.provider === 'google' ? 'Google' : user.provider}.`,
       400
     );
@@ -202,7 +218,7 @@ export const requestPasswordReset = async (email) => {
     user.resetPasswordOTP = undefined;
     user.resetPasswordOTPExpires = undefined;
     await user.save();
-    throw new AppError("Failed to send OTP email. Please try again later", 500);
+    throw AppError("Failed to send OTP email. Please try again later", 500);
   }
   
   return { message: "OTP sent successfully to your email" };
@@ -215,17 +231,17 @@ export const verifyOTPService = async (email, otp) => {
     .select('+resetPasswordOTP +resetPasswordOTPExpires');
   
   if (!user) {
-    throw new AppError("Invalid credentials", 400);
+    throw AppError("Invalid credentials", 400);
   }
   
   // Check if user is local provider
   if (user.provider !== "local") {
-    throw new AppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
+    throw AppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
   }
   
   // Check if OTP exists
   if (!user.resetPasswordOTP || !user.resetPasswordOTPExpires) {
-    throw new AppError("No OTP request found. Please request a new OTP", 400);
+    throw AppError("No OTP request found. Please request a new OTP", 400);
   }
   
   // Check if OTP has expired
@@ -233,14 +249,14 @@ export const verifyOTPService = async (email, otp) => {
     user.resetPasswordOTP = undefined;
     user.resetPasswordOTPExpires = undefined;
     await user.save();
-    throw new AppError("OTP has expired. Please request a new one", 400);
+    throw AppError("OTP has expired. Please request a new one", 400);
   }
   
   // Verify OTP
   const isValid = await verifyOTPUtil(otp, user.resetPasswordOTP);
   
   if (!isValid) {
-    throw new AppError("Invalid OTP", 400);
+    throw AppError("Invalid OTP", 400);
   }
   
   return { message: "OTP verified successfully", verified: true };
@@ -253,16 +269,16 @@ export const resetPassword = async (email, otp, newPassword) => {
     .select('+resetPasswordOTP +resetPasswordOTPExpires +password');
   
   if (!user) {
-    throw new AppError("Invalid credentials", 400);
+    throw AppError("Invalid credentials", 400);
   }
   
   if (user.provider !== "local") {
-    throw new AppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
+    throw AppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
   }
   
   // Check if OTP exists
   if (!user.resetPasswordOTP || !user.resetPasswordOTPExpires) {
-    throw new AppError("No OTP request found. Please request a new OTP", 400);
+    throw AppError("No OTP request found. Please request a new OTP", 400);
   }
   
   // Check if OTP has expired
@@ -271,14 +287,14 @@ export const resetPassword = async (email, otp, newPassword) => {
     user.resetPasswordOTP = undefined;
     user.resetPasswordOTPExpires = undefined;
     await user.save();
-    throw new AppError("OTP has expired. Please request a new one", 400);
+    throw AppError("OTP has expired. Please request a new one", 400);
   }
   
   // Verify OTP
   const isValid = await verifyOTPUtil(otp, user.resetPasswordOTP);
   
   if (!isValid) {
-    throw new AppError("Invalid OTP", 400);
+    throw AppError("Invalid OTP", 400);
   }
   
   // Update password (will be hashed by pre-save middleware)
@@ -299,3 +315,4 @@ export const resetPassword = async (email, otp, newPassword) => {
   
   return { message: "Password reset successfully" };
 };
+

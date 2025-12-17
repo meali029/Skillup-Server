@@ -66,7 +66,10 @@ export const getAllJobs = async (filters = {}, options = {}) => {
 
   const [jobs, total] = await Promise.all([
     Job.find(query)
-      .populate('client', 'name email companyName')
+      .populate({
+        path: 'client',
+        select: 'name email companyName isActive isBanned',
+      })
       .sort(search ? { score: { $meta: 'textScore' } } : sort)
       .skip(skip)
       .limit(limit)
@@ -74,13 +77,18 @@ export const getAllJobs = async (filters = {}, options = {}) => {
     Job.countDocuments(query),
   ]);
 
+  // Filter out jobs from banned or suspended users
+  const filteredJobs = jobs.filter(job => {
+    return job.client && job.client.isActive && !job.client.isBanned;
+  });
+
   return {
-    jobs,
+    jobs: filteredJobs,
     pagination: {
       page: parseInt(page),
       limit: parseInt(limit),
-      total,
-      pages: Math.ceil(total / limit),
+      total: filteredJobs.length,
+      pages: Math.ceil(filteredJobs.length / limit),
     },
   };
 };
@@ -90,10 +98,15 @@ export const getJobById = async (jobId) => {
     _id: jobId,
     isActive: true,
     deletedAt: null,
-  }).populate('client', 'name email companyName');
+  }).populate('client', 'name email companyName isActive isBanned');
 
   if (!job) {
-    throw new AppError('Job not found', 404);
+    throw AppError('Job not found', 404);
+  }
+
+  // Check if client is banned or suspended
+  if (!job.client || !job.client.isActive || job.client.isBanned) {
+    throw AppError('This job is no longer available', 404);
   }
 
   await job.incrementViews();
@@ -110,7 +123,7 @@ export const updateJob = async (jobId, userId, updateData) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   if (job.proposalsCount > 0) {
@@ -118,7 +131,7 @@ export const updateJob = async (jobId, userId, updateData) => {
     const hasRestrictedUpdate = restrictedFields.some(field => updateData[field]);
     
     if (hasRestrictedUpdate) {
-      throw new AppError('Cannot update budget or category after receiving proposals', 400);
+      throw AppError('Cannot update budget or category after receiving proposals', 400);
     }
   }
 
@@ -138,7 +151,7 @@ export const deleteJob = async (jobId, userId) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   const wasOpen = job.status === 'open';
@@ -150,7 +163,7 @@ export const deleteJob = async (jobId, userId) => {
     job.isActive = false;
     await job.save();
   } else {
-    throw new AppError('Cannot delete job with active proposals. Close the job instead.', 400);
+    throw AppError('Cannot delete job with active proposals. Close the job instead.', 400);
   }
   
   const updates = { $inc: { postedJobsCount: -1 } };
@@ -204,7 +217,7 @@ export const closeJob = async (jobId, userId) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   const previousStatus = job.status;
@@ -259,11 +272,11 @@ export const completeJob = async (jobId, userId, freelancerId, finalAmount) => {
   });
 
   if (!job) {
-    throw new AppError('Job not found or unauthorized', 404);
+    throw AppError('Job not found or unauthorized', 404);
   }
 
   if (job.status !== 'in-progress' && job.status !== 'in-review') {
-    throw new AppError('Only jobs in progress or in review can be completed', 400);
+    throw AppError('Only jobs in progress or in review can be completed', 400);
   }
 
   const wasOpen = job.status === 'open';
@@ -294,11 +307,11 @@ export const getRecommendedJobs = async (userId) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    throw new AppError('User not found', 404);
+    throw AppError('User not found', 404);
   }
 
   if (user.role !== 'freelancer') {
-    throw new AppError('User is not a freelancer', 403);
+    throw AppError('User is not a freelancer', 403);
   }
 
   const userSkills = user.skills || [];

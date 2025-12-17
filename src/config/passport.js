@@ -20,6 +20,13 @@ export function initializePassport() {
         let user = await User.findOne({ googleId: profile.id });
         
         if (user) {
+          // Check if user is banned or suspended
+          if (user.isBanned) {
+            return done(new Error("Your account has been banned. Please contact our help center for assistance."), null);
+          }
+          if (!user.isActive) {
+            return done(new Error("Your account has been suspended. Please contact our help center for assistance."), null);
+          }
           return done(null, user);
         }
         
@@ -27,6 +34,14 @@ export function initializePassport() {
         user = await User.findOne({ email: profile.emails[0].value });
         
         if (user) {
+          // Check if user is banned or suspended
+          if (user.isBanned) {
+            return done(new Error("Your account has been banned. Please contact our help center for assistance."), null);
+          }
+          if (!user.isActive) {
+            return done(new Error("Your account has been suspended. Please contact our help center for assistance."), null);
+          }
+          
           // Link Google account to existing user
           user.googleId = profile.id;
           user.provider = 'google';

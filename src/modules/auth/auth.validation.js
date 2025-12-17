@@ -1,4 +1,5 @@
 import Joi from "joi";
+import { validateCNIC } from "../../core/utils/cnicValidation.js";
 
 export const registerSchema = Joi.object({
   name: Joi.string()
@@ -701,6 +702,95 @@ export const validateVerifyOTP = (req, res, next) => {
 
 export const validateResetPassword = (req, res, next) => {
   const { error, value } = resetPasswordSchema.validate(req.body, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    const errors = error.details.map(detail => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    }));
+    
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors
+    });
+  }
+
+  req.validatedData = value;
+  next();
+};
+
+// CNIC Validation Schema
+export const submitCNICSchema = Joi.object({
+  cnicNumber: Joi.string()
+    .trim()
+    .required()
+    .custom((value, helpers) => {
+      const validation = validateCNIC(value);
+      if (!validation.valid) {
+        return helpers.error('string.custom', { message: validation.error });
+      }
+      return validation.normalized;
+    })
+    .messages({
+      "string.empty": "CNIC number is required",
+      "any.required": "CNIC number is required",
+      "string.custom": "Invalid CNIC format. Expected format: XXXXX-XXXXXXX-X (e.g., 12345-1234567-1)"
+    })
+});
+
+export const validateSubmitCNIC = (req, res, next) => {
+  const { error, value } = submitCNICSchema.validate(req.body, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    const errors = error.details.map(detail => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    }));
+    
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      errors
+    });
+  }
+
+  req.validatedData = value;
+  next();
+};
+
+// Admin CNIC Verification Schema
+export const verifyCNICSchema = Joi.object({
+  status: Joi.string()
+    .valid("verified", "rejected")
+    .required()
+    .messages({
+      "any.only": "Status must be either 'verified' or 'rejected'",
+      "any.required": "Status is required"
+    }),
+  
+  rejectionReason: Joi.string()
+    .trim()
+    .max(500)
+    .when('status', {
+      is: 'rejected',
+      then: Joi.required(),
+      otherwise: Joi.optional().allow("")
+    })
+    .messages({
+      "string.max": "Rejection reason must not exceed 500 characters",
+      "any.required": "Rejection reason is required when status is 'rejected'"
+    })
+});
+
+export const validateVerifyCNIC = (req, res, next) => {
+  const { error, value } = verifyCNICSchema.validate(req.body, {
     abortEarly: false,
     stripUnknown: true
   });

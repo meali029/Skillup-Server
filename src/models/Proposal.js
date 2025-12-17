@@ -49,6 +49,21 @@ const proposalSchema = new mongoose.Schema(
         },
       },
     ],
+    // Admin suspension tracking
+    suspendedByAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    
+    suspendedAt: {
+      type: Date,
+    },
+    
+    // Conversation reference (created when proposal is accepted)
+    conversation: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Conversation",
+    },
   },
   {
     timestamps: true,
