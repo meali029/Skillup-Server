@@ -79,6 +79,14 @@ class MessageService {
   }
 
   async sendMessage(conversationId, senderId, messageData, files = []) {
+    console.log('💬 [sendMessage] Service called with:', {
+      conversationId,
+      senderId,
+      messageData: { ...messageData, content: messageData.content?.substring(0, 50) + '...' },
+      filesCount: files.length,
+      embeds: messageData.embeds
+    });
+
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation) {
@@ -100,12 +108,14 @@ class MessageService {
     const message = new Message({
       conversation: conversationId,
       sender: senderId,
-      content: messageData.content,
-      type: files.length > 0 ? 'file' : 'text',
+      content: messageData.content || (messageData.embeds?.length > 0 ? 'Shared a video' : ''),
+      type: files.length > 0 || (messageData.embeds && messageData.embeds.length > 0) ? 'file' : 'text',
       attachments,
       replyTo: messageData.replyTo,
+      embeds: messageData.embeds || [],
     });
 
+    console.log('📦 [sendMessage] Saving message with embeds:', messageData.embeds);
     await message.save();
     await message.markAsRead(senderId);
 

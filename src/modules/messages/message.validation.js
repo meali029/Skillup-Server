@@ -32,8 +32,18 @@ export const sendMessage = {
     conversationId: Joi.string().required().hex().length(24),
   }),
   body: Joi.object({
-    content: Joi.string().required().trim().min(1).max(5000),
+    content: Joi.string().allow('').optional().trim().max(5000),
     replyTo: Joi.string().optional().hex().length(24),
+    embeds: Joi.alternatives().try(
+      Joi.string().optional(), // Allow string (JSON) format from form data
+      Joi.array().items(
+        Joi.object({
+          type: Joi.string().required(),
+          url: Joi.string().required(),
+          title: Joi.string().optional(),
+        })
+      ).optional()
+    ).optional(),
   }),
 };
 

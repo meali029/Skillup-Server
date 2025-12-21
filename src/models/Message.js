@@ -81,6 +81,19 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Message',
     },
+    embeds: [{
+      type: {
+        type: String,
+        required: true,
+      },
+      url: {
+        type: String,
+        required: true,
+      },
+      title: {
+        type: String,
+      },
+    }],
   },
   {
     timestamps: true,
