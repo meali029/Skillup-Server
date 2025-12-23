@@ -64,6 +64,11 @@ const proposalSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Conversation",
     },
+    // Whether the client has viewed this proposal (used to notify freelancer once)
+    clientViewed: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

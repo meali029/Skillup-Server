@@ -4,6 +4,7 @@ import User from '../../models/User.js';
 import AppError from '../../core/errors/AppError.js';
 import { createAuditLog } from '../../core/utils/auditLogger.js';
 import { emitMessage, emitMessageEdited, emitMessageDeleted } from '../../sockets/index.js';
+import { notifyUser } from '../notifications/notification.service.js';
 
 class MessageService {
   async createConversation(userId, data) {
@@ -136,6 +137,23 @@ class MessageService {
 
     // Emit socket event
     emitMessage(conversationId, message.toObject(), senderId);
+
+    // Persist & emit a notification to the other participants
+    conversation.participants.forEach((participantId) => {
+      if (participantId.toString() !== senderId.toString()) {
+        try {
+          notifyUser(participantId, {
+            type: 'message_received',
+            title: 'New message',
+            message: `${message.sender.name || 'Someone'}: ${message.content?.substring(0,120)}`,
+            link: `/messages/${conversationId}`,
+            data: { conversationId, messageId: message._id }
+          });
+        } catch (err) {
+          console.error('[Notification] failed to notify participant', participantId, err.message);
+        }
+      }
+    });
 
     // TODO: Fix audit logging API
     // await createAuditLog({

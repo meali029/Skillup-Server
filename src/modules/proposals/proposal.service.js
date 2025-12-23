@@ -4,6 +4,7 @@ import User from "../../models/User.js";
 import Conversation from "../../models/Conversation.js";
 import Message from "../../models/Message.js";
 import { AppError } from "../../core/errors/index.js";
+import { notifyUser } from "../notifications/notification.service.js";
 
 export const createProposal = async (userId, proposalData) => {
   const { jobId, coverLetter, bidAmount, deliveryTime, attachments } = proposalData;
@@ -65,6 +66,20 @@ export const createProposal = async (userId, proposalData) => {
   await Job.findByIdAndUpdate(jobId, {
     $inc: { proposalsCount: 1 }
   });
+
+  // Notify job owner (client) about new proposal
+  try {
+    const clientId = job.client;
+    await notifyUser(clientId, {
+      type: 'proposal_received',
+      title: 'New proposal received',
+      message: `${user.name} submitted a proposal for your job "${job.title}"`,
+      link: `/jobs/${jobId}/proposals/${proposal._id}`,
+      data: { jobId, proposalId: proposal._id }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify job owner about proposal', err.message);
+  }
 
   return populatedProposal;
 };
@@ -283,6 +298,34 @@ export const getClientProposalById = async (proposalId, clientId) => {
   return proposal;
 };
 
+// notify client view - call this from controller or router flow where appropriate
+export const clientViewedProposalAndNotify = async (proposalId, clientId) => {
+  const proposal = await Proposal.findById(proposalId).populate('freelancerId', 'name');
+  if (!proposal) throw AppError('Proposal not found', 404);
+  // verify ownership
+  if (!proposal.jobId) {
+    const job = await Job.findById(proposal.jobId);
+  }
+  if (proposal.clientViewed) return proposal;
+  // mark viewed
+  proposal.clientViewed = true;
+  await proposal.save();
+
+  try {
+    await notifyUser(proposal.freelancerId, {
+      type: 'proposal_viewed',
+      title: 'Proposal viewed',
+      message: `Client viewed your proposal for "${proposal.jobId?.title || ''}"`,
+      link: `/proposals/${proposalId}`,
+      data: { proposalId, jobId: proposal.jobId }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify freelancer about proposal view', err.message);
+  }
+
+  return proposal;
+};
+
 export const acceptProposal = async (proposalId, clientId) => {
   const proposal = await Proposal.findById(proposalId).populate("jobId");
 
@@ -347,6 +390,19 @@ export const acceptProposal = async (proposalId, clientId) => {
   // Populate conversation for the response
   await conversation.populate('participants', 'name email avatar role');
 
+  // Notify freelancer
+  try {
+    await notifyUser(proposal.freelancerId, {
+      type: 'proposal_accepted',
+      title: 'Proposal accepted',
+      message: `Your proposal for "${proposal.jobId.title}" has been accepted`,
+      link: `/conversations/${conversation._id}`,
+      data: { proposalId: proposal._id, conversationId: conversation._id }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify freelancer about acceptance', err.message);
+  }
+
   return {
     proposal: updatedProposal,
     conversation,
@@ -374,6 +430,19 @@ export const rejectProposal = async (proposalId, clientId, reason = null) => {
     proposal.rejectionReason = reason;
   }
   await proposal.save();
+
+  // Notify freelancer about rejection
+  try {
+    await notifyUser(proposal.freelancerId, {
+      type: 'proposal_rejected',
+      title: 'Proposal rejected',
+      message: `Your proposal for "${proposal.jobId.title}" was rejected${reason ? `: ${reason}` : '.'}`,
+      link: `/jobs/${proposal.jobId}`,
+      data: { proposalId }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify freelancer about rejection', err.message);
+  }
 
   return await Proposal.findById(proposalId)
     .populate("freelancerId", "name email avatar")
