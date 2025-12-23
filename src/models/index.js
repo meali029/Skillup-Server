@@ -7,8 +7,10 @@ import Proposal from "./Proposal.js";
 import Contract from "./Contract.js";
 import Conversation from "./Conversation.js";
 import Message from "./Message.js";
+import AdminSettings from "./AdminSettings.js";
+import EnvironmentVariable from "./EnvironmentVariable.js";
 
-export { User, Job, Proposal, Contract, Conversation, Message };
+export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable };
 
 export default {
   User,
@@ -17,4 +19,6 @@ export default {
   Contract,
   Conversation,
   Message,
+  AdminSettings,
+  EnvironmentVariable,
 };

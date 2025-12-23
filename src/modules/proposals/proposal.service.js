@@ -5,6 +5,7 @@ import Conversation from "../../models/Conversation.js";
 import Message from "../../models/Message.js";
 import { AppError } from "../../core/errors/index.js";
 import { notifyUser } from "../notifications/notification.service.js";
+import aiService from "../../services/ai/ai.service.js";
 
 export const createProposal = async (userId, proposalData) => {
   const { jobId, coverLetter, bidAmount, deliveryTime, attachments } = proposalData;
@@ -491,4 +492,74 @@ export const getAllClientProposals = async (clientId, filters = {}) => {
       pages: Math.ceil(total / limit),
     },
   };
+};
+
+
+/**
+ * Generate AI-powered proposal draft
+ * @param {string} jobId - Job ID
+ * @param {string} userId - Freelancer user ID
+ * @returns {Promise<Object>} Proposal draft with AI-generated content
+ */
+export const generateProposalDraft = async (jobId, userId) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw AppError("User not found", 404);
+  }
+  if (user.role !== "freelancer") {
+    throw AppError("Only freelancers can generate proposals", 403);
+  }
+
+  const job = await Job.findById(jobId);
+  if (!job) {
+    throw AppError("Job not found", 404);
+  }
+  if (job.status !== "open" || !job.isActive) {
+    throw AppError("This job is no longer accepting proposals", 400);
+  }
+
+  // Check if proposal already exists
+  const existingProposal = await Proposal.findOne({
+    freelancerId: userId,
+    jobId: jobId,
+    status: { $ne: 'withdrawn' }
+  });
+
+  if (existingProposal) {
+    throw AppError("You have already submitted a proposal for this job", 400);
+  }
+
+  try {
+    // Generate AI proposal draft
+    const draft = await aiService.generateProposalDraft(job, user);
+
+    return {
+      jobId: job._id,
+      jobTitle: job.title,
+      draft: {
+        coverLetter: draft.coverLetter,
+        bidAmount: draft.bidAmount,
+        deliveryTime: draft.deliveryTime,
+        confidence: draft.confidence,
+        generatedAt: draft.generatedAt,
+      },
+    };
+  } catch (error) {
+    // If AI generation fails, throw user-friendly error
+    if (error.statusCode) {
+      throw error;
+    }
+    throw AppError(`\Failed to generate proposal draft: \\`, 500);
+  }
+};
+
+/**
+ * Regenerate AI proposal draft
+ * @param {string} jobId - Job ID
+ * @param {string} userId - Freelancer user ID
+ * @returns {Promise<Object>} New proposal draft
+ */
+export const regenerateProposalDraft = async (jobId, userId) => {
+  // Same logic as generateProposalDraft, but allows regeneration
+  return generateProposalDraft(jobId, userId);
 };

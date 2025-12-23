@@ -24,9 +24,14 @@ import jobCheckerRoutes from "./modules/admin/jobs/job-checker.routes.js";
 import analyticsRoutes from "./modules/admin/analytics/analytics.routes.js";
 import auditLogRoutes from "./modules/admin/audit-logs/audit-logs.routes.js";
 import permissionsRoutes from "./modules/admin/permissions/permissions.routes.js";
+import adminSettingsRoutes from "./modules/admin/admin.settings.routes.js";
+import healthRoutes from "./modules/admin/health/health.routes.js";
+import envVarsRoutes from "./modules/admin/env-vars/envVars.routes.js";
+import settingsRoutes from "./modules/settings/settings.routes.js";
 import cnicRoutes from "./modules/cnic/cnic.routes.js";
 import userRoutes from "./modules/users/user.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
+import disputeRoutes from "./modules/disputes/dispute.routes.js";
 import { errorHandler } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
@@ -235,6 +240,8 @@ app.use("/api/contracts", contractRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use("/api/disputes", disputeRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);
@@ -244,6 +251,9 @@ app.use("/api/admin/jobs", jobCheckerRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/admin/audit-logs", auditLogRoutes);
 app.use("/api/admin/permissions", permissionsRoutes);
+app.use("/api/admin/settings", adminSettingsRoutes);
+app.use("/api/admin/health", healthRoutes);
+app.use("/api/admin/env-vars", envVarsRoutes);
 
 app.all("*", (req, res, next) => {
   next(AppError(`Cannot find ${req.originalUrl} on this server`, 404));

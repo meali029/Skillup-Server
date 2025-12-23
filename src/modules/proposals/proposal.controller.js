@@ -120,3 +120,21 @@ export const getAllClientProposals = asyncHandler(async (req, res) => {
     pagination: result.pagination 
   }, "Proposals fetched successfully");
 });
+
+/**
+ * Generate AI proposal draft
+ */
+export const generateProposalDraft = asyncHandler(async (req, res) => {
+  const { jobId } = req.params;
+  const draft = await proposalService.generateProposalDraft(jobId, req.user.id);
+  successResponse(res, draft, 'Proposal draft generated successfully');
+});
+
+/**
+ * Regenerate AI proposal draft
+ */
+export const regenerateProposalDraft = asyncHandler(async (req, res) => {
+  const { jobId } = req.params;
+  const draft = await proposalService.regenerateProposalDraft(jobId, req.user.id);
+  successResponse(res, draft, 'Proposal draft regenerated successfully');
+});

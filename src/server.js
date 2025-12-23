@@ -16,11 +16,23 @@ import connectDB from "./config/db.js";
 import "./models/index.js";
 import { verifyEmailConfig } from "./core/utils/emailService.js";
 import { initializeSocketServer } from "./sockets/index.js";
+import { initializeEnvLoader } from "./core/utils/envLoader.js";
 
-connectDB();
-
-// Verify email configuration on startup
-verifyEmailConfig();
+// Initialize environment loader after DB connection
+connectDB().then(async () => {
+  try {
+    await initializeEnvLoader();
+  } catch (error) {
+    console.error('[Server] Error initializing env loader:', error);
+    // Continue anyway - will use .env file
+  }
+  
+  // Verify email configuration on startup
+  verifyEmailConfig();
+}).catch((error) => {
+  console.error('[Server] Database connection failed:', error);
+  process.exit(1);
+});
 
 const PORT = process.env.PORT || 5000;
 

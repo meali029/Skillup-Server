@@ -12,6 +12,8 @@ import {
   acceptProposal,
   rejectProposal,
   getAllClientProposals,
+  generateProposalDraft,
+  regenerateProposalDraft,
 } from "./proposal.controller.js";
 import {
   validateSubmitProposal,
@@ -35,6 +37,10 @@ router.get("/check/:jobId", authorize("freelancer"), validateJobId, checkIfAppli
 router.get("/freelancer/:id", authorize("freelancer"), validateProposalId, getProposalDetails);
 router.put("/:id", authorize("freelancer"), validateProposalId, validateUpdateProposal, updateProposal);
 router.delete("/:id", authorize("freelancer"), validateProposalId, withdrawProposal);
+
+// AI Proposal Generation routes (accessible by freelancers and admins for testing)
+router.get("/draft/:jobId", authorize("freelancer", "admin"), validateJobId, generateProposalDraft);
+router.post("/draft/:jobId/regenerate", authorize("freelancer", "admin"), validateJobId, regenerateProposalDraft);
 
 // Client routes
 router.get("/client/all", authorize("client"), validateProposalQuery, getAllClientProposals);

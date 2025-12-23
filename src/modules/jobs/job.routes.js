@@ -8,6 +8,8 @@ import {
   getMyJobs,
   closeJob,
   getJobStats,
+  getRecommendedJobs,
+  getRecommendedFreelancers,
 } from './job.controller.js';
 import {
   validateCreateJob,
@@ -30,6 +32,12 @@ router.delete('/:id', authorize('client'), deleteJob);
 router.patch('/:id/close', authorize('client'), closeJob);
 
 router.get('/:id', getJobById);
+
+// Recommended jobs for freelancers
+router.get('/freelancer/recommended', authorize('freelancer'), getRecommendedJobs);
+
+// Recommended freelancers for a job (client only)
+router.get('/:id/recommended-freelancers', authorize('client'), getRecommendedFreelancers);
 
 export default router;
 

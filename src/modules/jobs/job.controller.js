@@ -54,3 +54,20 @@ export const getJobStats = asyncHandler(async (req, res) => {
   const stats = await jobService.getJobStats(req.user.id);
   successResponse(res, { stats }, 'Statistics fetched successfully');
 });
+
+/**
+ * Get recommended jobs for freelancer
+ */
+export const getRecommendedJobs = asyncHandler(async (req, res) => {
+  const jobs = await jobService.getRecommendedJobs(req.user.id);
+  successResponse(res, { jobs: jobs.map(job => formatJob(job)) }, 'Recommended jobs fetched successfully');
+});
+
+/**
+ * Get recommended freelancers for a job
+ */
+export const getRecommendedFreelancers = asyncHandler(async (req, res) => {
+  const { limit = 10, minScore = 0 } = req.query;
+  const freelancers = await jobService.getRecommendedFreelancers(req.params.id, { limit, minScore });
+  successResponse(res, { freelancers }, 'Recommended freelancers fetched successfully');
+});
