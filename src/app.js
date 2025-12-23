@@ -26,6 +26,7 @@ import auditLogRoutes from "./modules/admin/audit-logs/audit-logs.routes.js";
 import permissionsRoutes from "./modules/admin/permissions/permissions.routes.js";
 import adminSettingsRoutes from "./modules/admin/admin.settings.routes.js";
 import healthRoutes from "./modules/admin/health/health.routes.js";
+import envVarsRoutes from "./modules/admin/env-vars/envVars.routes.js";
 import settingsRoutes from "./modules/settings/settings.routes.js";
 import cnicRoutes from "./modules/cnic/cnic.routes.js";
 import userRoutes from "./modules/users/user.routes.js";
@@ -252,6 +253,7 @@ app.use("/api/admin/audit-logs", auditLogRoutes);
 app.use("/api/admin/permissions", permissionsRoutes);
 app.use("/api/admin/settings", adminSettingsRoutes);
 app.use("/api/admin/health", healthRoutes);
+app.use("/api/admin/env-vars", envVarsRoutes);
 
 app.all("*", (req, res, next) => {
   next(AppError(`Cannot find ${req.originalUrl} on this server`, 404));
