@@ -1,6 +1,7 @@
 import Job from '../../models/Job.js';
 import User from '../../models/User.js';
 import { AppError } from '../../core/errors/index.js';
+import matchingService from '../../services/matching/matching.service.js';
 
 export const createJob = async (jobData, clientId) => {
   const job = new Job({
@@ -322,14 +323,78 @@ export const getRecommendedJobs = async (userId) => {
     deletedAt: null
   };
 
+  // If user has skills, filter by skills; otherwise get all open jobs
   if (userSkills.length > 0) {
     query.skills = { $in: userSkills };
   }
 
+  // Get more jobs than needed for better ranking
   const jobs = await Job.find(query)
     .populate('client', 'name avatar companyName')
-    .sort({ createdAt: -1 })
-    .limit(10);
+    .limit(50); // Get more for better AI ranking
 
-  return jobs;
+  // Use matching service to rank jobs
+  const rankedJobs = await matchingService.rankJobs(jobs, user, true);
+  
+  // Filter by minimum match score and return top 10
+  const filteredJobs = matchingService.filterJobsByMatchScore(rankedJobs, 20);
+  
+  return filteredJobs.slice(0, 10);
+};
+
+/**
+ * Get recommended freelancers for a job
+ * @param {string} jobId - Job ID
+ * @param {Object} options - Query options
+ * @returns {Promise<Array>} Ranked freelancers
+ */
+export const getRecommendedFreelancers = async (jobId, options = {}) => {
+  const { limit = 10, minScore = 0 } = options;
+
+  const job = await Job.findById(jobId)
+    .populate('client', 'name avatar companyName');
+  
+  if (!job) {
+    throw AppError('Job not found', 404);
+  }
+
+  if (job.status !== 'open') {
+    throw AppError('Job is not open for proposals', 400);
+  }
+
+  // Build query for freelancers
+  const query = {
+    role: 'freelancer',
+    isActive: true,
+    isBanned: { $ne: true },
+  };
+
+  // Filter by skills if job has required skills
+  if (job.skills && job.skills.length > 0) {
+    query.skills = { $in: job.skills };
+  }
+
+  // Get more freelancers than needed for better ranking
+  const freelancers = await User.find(query)
+    .select('-password -resetPasswordOTP -resetPasswordOTPExpires -cnic')
+    .limit(50); // Get more for better AI ranking
+
+  console.log(`[Recommendations] Found ${freelancers.length} freelancers for job ${jobId}`);
+
+  if (freelancers.length === 0) {
+    console.log('[Recommendations] No freelancers found matching criteria');
+    return [];
+  }
+
+  // Use matching service to rank freelancers
+  const rankedFreelancers = await matchingService.rankFreelancers(freelancers, job, true);
+  
+  console.log(`[Recommendations] Ranked ${rankedFreelancers.length} freelancers, scores: ${rankedFreelancers.slice(0, 5).map(f => f.matchScore).join(', ')}`);
+
+  // Filter by minimum match score
+  const filteredFreelancers = matchingService.filterFreelancersByMatchScore(rankedFreelancers, minScore);
+  
+  console.log(`[Recommendations] After filtering (minScore=${minScore}): ${filteredFreelancers.length} freelancers`);
+
+  return filteredFreelancers.slice(0, limit);
 };
