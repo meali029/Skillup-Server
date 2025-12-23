@@ -3,6 +3,7 @@ import Job from '../../../models/Job.js';
 import Proposal from '../../../models/Proposal.js';
 import AppError from '../../../core/errors/AppError.js';
 import ExcelJS from 'exceljs';
+import { notifyUser } from '../../notifications/notification.service.js';
 
 /**
  * Get all users with advanced filters
@@ -184,6 +185,19 @@ export const suspendUser = async (userId, reason, adminId) => {
   // TODO: Send email notification to user
   // await emailService.sendSuspensionEmail(user.email, reason);
 
+  // Real-time notification
+  try {
+    await notifyUser(user._id, {
+      type: 'account_suspended',
+      title: 'Account suspended',
+      message: `Your account was suspended by admin: ${reason}`,
+      link: '/help',
+      data: { reason }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify user about suspension', err.message);
+  }
+
   // Return user without password
   const updatedUser = await User.findById(userId).select('-password');
   return updatedUser;
@@ -247,6 +261,19 @@ export const banUser = async (userId, reason, adminId) => {
 
   // TODO: Send email notification to user
   // await emailService.sendBanEmail(user.email, reason);
+
+  // Real-time notification
+  try {
+    await notifyUser(user._id, {
+      type: 'account_banned',
+      title: 'Account banned',
+      message: `Your account has been banned: ${reason}`,
+      link: '/help',
+      data: { reason }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify user about ban', err.message);
+  }
 
   // Return user without password
   const updatedUser = await User.findById(userId).select('-password');
@@ -316,6 +343,19 @@ export const activateUser = async (userId, adminId) => {
 
   // TODO: Send email notification to user
   // await emailService.sendActivationEmail(user.email);
+
+  // Real-time notification
+  try {
+    await notifyUser(user._id, {
+      type: 'account_activated',
+      title: 'Account activated',
+      message: 'Your account has been activated by admin',
+      link: '/profile',
+      data: {}
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify user about activation', err.message);
+  }
 
   // Return user without password
   const updatedUser = await User.findById(userId).select('-password');

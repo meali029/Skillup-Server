@@ -12,6 +12,7 @@ import { formatUser } from "../shared/dtos/index.js";
 import { TokenService } from "../shared/services/index.js";
 import User from "../../models/User.js";
 import { createAuditLog } from "../../core/utils/auditLogger.js";
+import { notifyUser } from '../notifications/notification.service.js';
 
 export const register = asyncHandler(async (req, res) => {
   // Extract all possible registration fields from validatedData or body
@@ -53,6 +54,18 @@ export const login = asyncHandler(async (req, res) => {
       },
     });
   }
+    // Notify user about login
+    try {
+      await notifyUser(user._id || user.id, {
+        type: 'login',
+        title: 'Login successful',
+        message: `You logged in at ${new Date().toLocaleString()}`,
+        link: '/profile',
+        data: { ip: req.ip }
+      });
+    } catch (err) {
+      console.error('[Notification] Failed to notify user about login', err.message);
+    }
   
   successResponse(
     res,

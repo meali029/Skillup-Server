@@ -25,6 +25,8 @@ import analyticsRoutes from "./modules/admin/analytics/analytics.routes.js";
 import auditLogRoutes from "./modules/admin/audit-logs/audit-logs.routes.js";
 import permissionsRoutes from "./modules/admin/permissions/permissions.routes.js";
 import cnicRoutes from "./modules/cnic/cnic.routes.js";
+import userRoutes from "./modules/users/user.routes.js";
+import notificationRoutes from "./modules/notifications/notification.routes.js";
 import { errorHandler } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
@@ -231,6 +233,8 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/cnic", cnicRoutes);
 app.use("/api/contracts", contractRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);

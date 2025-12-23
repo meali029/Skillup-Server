@@ -3,6 +3,7 @@ import createAppError from '../../core/errors/AppError.js';
 import { processCNICImage, deleteCNICImages } from '../../core/utils/imageProcessor.js';
 import CNICTemplateOCR from '../../services/ocr.service.template.js';
 import path from 'path';
+import { notifyAdmins, notifyUser } from '../notifications/notification.service.js';
 
 /**
  * Submit CNIC for verification (User)
@@ -94,6 +95,19 @@ export const submitCNIC = async (userId, files) => {
   };
 
   await user.save();
+
+  // Notify admins that a new CNIC was submitted
+  try {
+    await notifyAdmins({
+      type: 'cnic_submitted',
+      title: 'New CNIC submitted',
+      message: `${user.name} submitted CNIC for verification`,
+      link: `/admin/cnic/${user._id}`,
+      data: { userId: user._id }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify admins about CNIC submission', err.message);
+  }
 
   return {
     message: 'CNIC submitted successfully and is now pending admin review',
@@ -250,6 +264,19 @@ export const approveCNIC = async (userId, adminId, cnicData) => {
 
   await user.save();
 
+  // Notify the user that their CNIC was approved
+  try {
+    await notifyUser(user._id, {
+      type: 'cnic_approved',
+      title: 'CNIC approved',
+      message: 'Your CNIC has been approved by admin',
+      link: '/profile/cnic',
+      data: { userId: user._id }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify user about CNIC approval', err.message);
+  }
+
   return {
     message: 'CNIC verified successfully',
     user: {
@@ -295,6 +322,19 @@ export const rejectCNIC = async (userId, adminId, reason) => {
 
   await user.save();
 
+  // Notify the user about rejection
+  try {
+    await notifyUser(user._id, {
+      type: 'cnic_rejected',
+      title: 'CNIC rejected',
+      message: `Your CNIC submission was rejected: ${reason}`,
+      link: '/profile/cnic',
+      data: { userId: user._id }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify user about CNIC rejection', err.message);
+  }
+
   return {
     message: 'CNIC rejected',
     user: {
@@ -339,6 +379,19 @@ export const requestReupload = async (userId, adminId, reason) => {
   user.cnic.reviewedBy = adminId;
 
   await user.save();
+
+  // Notify the user to re-upload CNIC
+  try {
+    await notifyUser(user._id, {
+      type: 'cnic_reupload_requested',
+      title: 'CNIC re-upload requested',
+      message: `Admin requested re-upload: ${reason}`,
+      link: '/profile/cnic',
+      data: { userId: user._id }
+    });
+  } catch (err) {
+    console.error('[Notification] Failed to notify user about CNIC reupload request', err.message);
+  }
 
   return {
     message: 'Re-upload requested',
