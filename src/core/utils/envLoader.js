@@ -1,14 +1,10 @@
 import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import mongoose from 'mongoose';
 import EnvironmentVariable from '../../models/EnvironmentVariable.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 // Load .env file first (fallback)
-const envPath = join(__dirname, '../../../.env');
+const envPath = join(process.cwd(), '.env');
 dotenv.config({ path: envPath });
 
 // Cache for environment variables from database

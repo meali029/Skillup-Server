@@ -1,4 +1,4 @@
-import { AppError } from "../errors/index.js";
+import { createAppError } from "../errors/index.js";
 
 /**
  * Validation Middleware Factory
@@ -55,7 +55,7 @@ const validate = (schema, property = 'body') => {
             field: detail.path.join('.'),
             message: detail.message
           }));
-          throw AppError('Validation failed', 400, true, formattedErrors);
+          throw createAppError('Validation failed', 400, true, formattedErrors);
         }
       } else {
         // Plain Joi schema - validate single property
@@ -69,7 +69,7 @@ const validate = (schema, property = 'body') => {
             field: detail.path.join('.'),
             message: detail.message
           }));
-          throw AppError('Validation failed', 400, true, errors);
+          throw createAppError('Validation failed', 400, true, errors);
         }
 
         // Attach validated data to request

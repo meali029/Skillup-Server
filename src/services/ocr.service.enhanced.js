@@ -357,8 +357,8 @@ class EnhancedOCRService {
       const combinedFrontText = frontResults.map(r => r.text).join('\n');
       
       // Extract fields
-      const name = this.extractName(combinedFrontText, 'Name');
-      const fatherName = this.extractName(combinedFrontText, 'Father');
+      const name = await this.extractName(combinedFrontText, 'Name');
+      const fatherName = await this.extractName(combinedFrontText, 'Father');
       const dob = this.extractDateOfBirth(combinedFrontText);
       
       // Calculate overall confidence

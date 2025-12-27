@@ -1,11 +1,9 @@
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Use process.cwd() as a stable base directory for test and runtime environments
+const __dirname = process.cwd();
 
 /**
  * Process and compress CNIC image
