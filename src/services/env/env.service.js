@@ -16,7 +16,7 @@ class EnvService {
       const variables = await EnvironmentVariable.find({}).sort({ key: 1 });
       return variables;
     } catch (error) {
-      throw AppError('Failed to retrieve environment variables', 500);
+      throw createAppError('Failed to retrieve environment variables', 500);
     }
   }
 
@@ -30,7 +30,7 @@ class EnvService {
       });
       return variable;
     } catch (error) {
-      throw AppError('Failed to retrieve environment variable', 500);
+      throw createAppError('Failed to retrieve environment variable', 500);
     }
   }
 
@@ -57,7 +57,7 @@ class EnvService {
 
       return variable;
     } catch (error) {
-      throw AppError('Failed to set environment variable', 500);
+      throw createAppError('Failed to set environment variable', 500);
     }
   }
 
@@ -71,7 +71,7 @@ class EnvService {
       });
       
       if (!variable) {
-        throw AppError('Environment variable not found', 404);
+        throw createAppError('Environment variable not found', 404);
       }
 
       return variable;
@@ -97,7 +97,7 @@ class EnvService {
 
       return results;
     } catch (error) {
-      throw AppError('Failed to set bulk environment variables', 500);
+      throw createAppError('Failed to set bulk environment variables', 500);
     }
   }
 

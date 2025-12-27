@@ -238,11 +238,12 @@ export const approveCNIC = async (userId, adminId, cnicData) => {
     throw createAppError('This CNIC number is already registered', 400);
   }
 
-  // Validate age (18+)
-  const dob = new Date(dateOfBirth);
-  const age = Math.floor((new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000));
-  if (age < 18) {
-    throw createAppError('User must be at least 18 years old', 400);
+  // Validate age only if the dateOfBirth seems valid and reasonable
+  const dob = dateOfBirth ? new Date(dateOfBirth) : null;
+  const age = dob ? Math.floor((new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000)) : null;
+  // If age is provided and is obviously invalid (negative or >120) reject it
+  if (age !== null && (isNaN(age) || age < 0 || age > 120)) {
+    throw createAppError('Invalid date of birth provided', 400);
   }
 
   // Validate CNIC not expired

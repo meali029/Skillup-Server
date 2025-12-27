@@ -1,5 +1,5 @@
 import User from '../../models/User.js';
-import { AppError } from '../../core/errors/index.js';
+import { AppError, createAppError } from '../../core/errors/index.js';
 
 /**
  * Get user by ID (public info)
@@ -9,13 +9,13 @@ import { AppError } from '../../core/errors/index.js';
 export const getUserById = async (userId) => {
   // Validate ObjectId format
   if (!userId || !/^[0-9a-fA-F]{24}$/.test(userId)) {
-    throw AppError('Invalid user ID format', 400);
+    throw createAppError('Invalid user ID format', 400);
   }
 
   const user = await User.findById(userId).select('-password -resetPasswordOTP -resetPasswordOTPExpires');
 
   if (!user) {
-    throw AppError('User not found', 404);
+    throw createAppError('User not found', 404);
   }
 
   // Return public user data

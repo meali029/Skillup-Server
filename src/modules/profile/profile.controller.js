@@ -7,7 +7,7 @@ import {
   deletePortfolioItem
 } from "./profile.service.js";
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
-import { AppError } from "../../core/errors/index.js";
+import { AppError, createAppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
 import path from "path";
 

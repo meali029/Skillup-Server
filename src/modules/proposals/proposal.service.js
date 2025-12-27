@@ -3,7 +3,7 @@ import Job from "../../models/Job.js";
 import User from "../../models/User.js";
 import Conversation from "../../models/Conversation.js";
 import Message from "../../models/Message.js";
-import { AppError } from "../../core/errors/index.js";
+import { AppError, createAppError } from "../../core/errors/index.js";
 import { notifyUser } from "../notifications/notification.service.js";
 import aiService from "../../services/ai/ai.service.js";
 
@@ -12,18 +12,18 @@ export const createProposal = async (userId, proposalData) => {
 
   const user = await User.findById(userId);
   if (!user) {
-    throw AppError("User not found", 404);
+    throw createAppError("User not found", 404);
   }
   if (user.role !== "freelancer") {
-    throw AppError("Only freelancers can submit proposals", 403);
+    throw createAppError("Only freelancers can submit proposals", 403);
   }
 
   const job = await Job.findById(jobId);
   if (!job) {
-    throw AppError("Job not found", 404);
+    throw createAppError("Job not found", 404);
   }
   if (job.status !== "open" || !job.isActive) {
-    throw AppError("This job is no longer accepting proposals", 400);
+    throw createAppError("This job is no longer accepting proposals", 400);
   }
 
   const existingProposal = await Proposal.findOne({
@@ -33,7 +33,7 @@ export const createProposal = async (userId, proposalData) => {
 
   // Only block if there's an active (non-withdrawn) proposal
   if (existingProposal && existingProposal.status !== 'withdrawn') {
-    throw AppError("You have already submitted a proposal for this job", 400);
+    throw createAppError("You have already submitted a proposal for this job", 400);
   }
 
   // If there's a withdrawn proposal, delete it to allow resubmission
@@ -43,10 +43,10 @@ export const createProposal = async (userId, proposalData) => {
   }
 
   if (job.budgetMin && bidAmount < job.budgetMin) {
-    throw AppError(`Bid amount must be at least $${job.budgetMin}`, 400);
+    throw createAppError(`Bid amount must be at least $${job.budgetMin}`, 400);
   }
   if (job.budgetMax && bidAmount > job.budgetMax) {
-    throw AppError(`Bid amount cannot exceed $${job.budgetMax}`, 400);
+    throw createAppError(`Bid amount cannot exceed $${job.budgetMax}`, 400);
   }
 
   const proposal = await Proposal.create({
@@ -91,16 +91,16 @@ export const getProposalById = async (proposalId, userId) => {
     .populate("freelancerId", "name email avatar skills hourlyRate isActive isBanned");
 
   if (!proposal) {
-    throw AppError("Proposal not found", 404);
+    throw createAppError("Proposal not found", 404);
   }
 
   if (proposal.freelancerId._id.toString() !== userId.toString()) {
-    throw AppError("You don't have permission to view this proposal", 403);
+    throw createAppError("You don't have permission to view this proposal", 403);
   }
 
   // Check if freelancer is banned or suspended
   if (!proposal.freelancerId.isActive || proposal.freelancerId.isBanned) {
-    throw AppError("This proposal is no longer available", 404);
+    throw createAppError("This proposal is no longer available", 404);
   }
 
   return proposal;
@@ -140,15 +140,15 @@ export const updateProposal = async (proposalId, userId, updateData) => {
   const proposal = await Proposal.findById(proposalId);
 
   if (!proposal) {
-    throw AppError("Proposal not found", 404);
+    throw createAppError("Proposal not found", 404);
   }
 
   if (proposal.freelancerId.toString() !== userId.toString()) {
-    throw AppError("You don't have permission to update this proposal", 403);
+    throw createAppError("You don't have permission to update this proposal", 403);
   }
 
   if (proposal.status !== "pending") {
-    throw AppError("You can only edit proposals that are pending", 400);
+    throw createAppError("You can only edit proposals that are pending", 400);
   }
 
   const allowedUpdates = ["coverLetter", "bidAmount", "deliveryTime", "attachments"];
@@ -169,15 +169,15 @@ export const withdrawProposal = async (proposalId, userId) => {
   const proposal = await Proposal.findById(proposalId);
 
   if (!proposal) {
-    throw AppError("Proposal not found", 404);
+    throw createAppError("Proposal not found", 404);
   }
 
   if (proposal.freelancerId.toString() !== userId.toString()) {
-    throw AppError("You don't have permission to withdraw this proposal", 403);
+    throw createAppError("You don't have permission to withdraw this proposal", 403);
   }
 
   if (proposal.status !== "pending") {
-    throw AppError("You can only withdraw proposals that are pending", 400);
+    throw createAppError("You can only withdraw proposals that are pending", 400);
   }
 
   proposal.status = "withdrawn";
@@ -237,14 +237,14 @@ export const getJobProposals = async (jobId, clientId, filters = {}) => {
   // Verify job belongs to this client
   const job = await Job.findById(jobId);
   if (!job) {
-    throw AppError("Job not found", 404);
+    throw createAppError("Job not found", 404);
   }
   
   // Handle both ObjectId and populated client object
   const jobClientId = job.client?._id || job.client;
   
   if (jobClientId.toString() !== clientId.toString()) {
-    throw AppError("You don't have permission to view proposals for this job", 403);
+    throw createAppError("You don't have permission to view proposals for this job", 403);
   }
 
   const { status, page = 1, limit = 10, sortBy = "createdAt", sortOrder = "desc" } = filters;
@@ -288,12 +288,12 @@ export const getClientProposalById = async (proposalId, clientId) => {
     .populate("jobId", "title description budget budgetMin budgetMax client");
 
   if (!proposal) {
-    throw AppError("Proposal not found", 404);
+    throw createAppError("Proposal not found", 404);
   }
 
   // Verify the job belongs to this client
   if (proposal.jobId.client.toString() !== clientId.toString()) {
-    throw AppError("You don't have permission to view this proposal", 403);
+    throw createAppError("You don't have permission to view this proposal", 403);
   }
 
   return proposal;
@@ -302,7 +302,7 @@ export const getClientProposalById = async (proposalId, clientId) => {
 // notify client view - call this from controller or router flow where appropriate
 export const clientViewedProposalAndNotify = async (proposalId, clientId) => {
   const proposal = await Proposal.findById(proposalId).populate('freelancerId', 'name');
-  if (!proposal) throw AppError('Proposal not found', 404);
+  if (!proposal) throw createAppError('Proposal not found', 404);
   // verify ownership
   if (!proposal.jobId) {
     const job = await Job.findById(proposal.jobId);
@@ -331,16 +331,16 @@ export const acceptProposal = async (proposalId, clientId) => {
   const proposal = await Proposal.findById(proposalId).populate("jobId");
 
   if (!proposal) {
-    throw AppError("Proposal not found", 404);
+    throw createAppError("Proposal not found", 404);
   }
 
   // Verify the job belongs to this client
   if (proposal.jobId.client.toString() !== clientId.toString()) {
-    throw AppError("You don't have permission to accept this proposal", 403);
+    throw createAppError("You don't have permission to accept this proposal", 403);
   }
 
   if (proposal.status !== "pending") {
-    throw AppError(`Cannot accept a proposal that is already ${proposal.status}`, 400);
+    throw createAppError(`Cannot accept a proposal that is already ${proposal.status}`, 400);
   }
 
   proposal.status = "accepted";
@@ -414,16 +414,16 @@ export const rejectProposal = async (proposalId, clientId, reason = null) => {
   const proposal = await Proposal.findById(proposalId).populate("jobId");
 
   if (!proposal) {
-    throw AppError("Proposal not found", 404);
+    throw createAppError("Proposal not found", 404);
   }
 
   // Verify the job belongs to this client
   if (proposal.jobId.client.toString() !== clientId.toString()) {
-    throw AppError("You don't have permission to reject this proposal", 403);
+    throw createAppError("You don't have permission to reject this proposal", 403);
   }
 
   if (proposal.status !== "pending") {
-    throw AppError(`Cannot reject a proposal that is already ${proposal.status}`, 400);
+    throw createAppError(`Cannot reject a proposal that is already ${proposal.status}`, 400);
   }
 
   proposal.status = "rejected";
@@ -504,18 +504,18 @@ export const getAllClientProposals = async (clientId, filters = {}) => {
 export const generateProposalDraft = async (jobId, userId) => {
   const user = await User.findById(userId);
   if (!user) {
-    throw AppError("User not found", 404);
+    throw createAppError("User not found", 404);
   }
   if (user.role !== "freelancer") {
-    throw AppError("Only freelancers can generate proposals", 403);
+    throw createAppError("Only freelancers can generate proposals", 403);
   }
 
   const job = await Job.findById(jobId);
   if (!job) {
-    throw AppError("Job not found", 404);
+    throw createAppError("Job not found", 404);
   }
   if (job.status !== "open" || !job.isActive) {
-    throw AppError("This job is no longer accepting proposals", 400);
+    throw createAppError("This job is no longer accepting proposals", 400);
   }
 
   // Check if proposal already exists
@@ -526,7 +526,7 @@ export const generateProposalDraft = async (jobId, userId) => {
   });
 
   if (existingProposal) {
-    throw AppError("You have already submitted a proposal for this job", 400);
+    throw createAppError("You have already submitted a proposal for this job", 400);
   }
 
   try {
@@ -549,7 +549,7 @@ export const generateProposalDraft = async (jobId, userId) => {
     if (error.statusCode) {
       throw error;
     }
-    throw AppError(`\Failed to generate proposal draft: \\`, 500);
+    throw createAppError('Failed to generate proposal draft', 500);
   }
 };
 

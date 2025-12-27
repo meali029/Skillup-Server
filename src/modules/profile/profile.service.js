@@ -1,5 +1,5 @@
 import User from "../../models/User.js";
-import { AppError } from "../../core/errors/index.js";
+import { AppError, createAppError } from "../../core/errors/index.js";
 
 export const getProfile = async (userId) => {
   const user = await User.findById(userId);
@@ -61,7 +61,7 @@ export const addPortfolioItem = async (userId, portfolioData) => {
   }
   
   if (user.role !== 'freelancer') {
-    throw AppError("Only freelancers can add portfolio items", 403);
+    throw createAppError("Only freelancers can add portfolio items", 403);
   }
   
   user.portfolio.push(portfolioData);
@@ -80,7 +80,7 @@ export const updatePortfolioItem = async (userId, portfolioId, updateData) => {
   const portfolioItem = user.portfolio.id(portfolioId);
   
   if (!portfolioItem) {
-    throw AppError("Portfolio item not found", 404);
+    throw createAppError("Portfolio item not found", 404);
   }
   
   Object.assign(portfolioItem, updateData);

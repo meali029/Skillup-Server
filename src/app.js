@@ -2,11 +2,26 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import MongoStore from "connect-mongo";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const baseDir = process.cwd();
 
-const envPath = join(__dirname, "..", ".env");
-dotenv.config({ path: envPath });
+// ESM-safe __filename and __dirname resolution (compatible with CommonJS and ESM)
+// We avoid direct `import.meta` usage at parse time by using a Function wrapper so
+// Jest or CommonJS environments won't error on `import.meta` syntax.
+let __filename = baseDir;
+let __dirname = baseDir;
+try {
+  const getMetaUrl = new Function('try { return import.meta.url } catch (e) { return null }');
+  const metaUrl = getMetaUrl();
+  if (metaUrl) {
+    __filename = fileURLToPath(metaUrl);
+    __dirname = dirname(__filename);
+  }
+} catch (err) {
+  __filename = baseDir;
+  __dirname = baseDir;
+}
+
+dotenv.config({ path: join(baseDir, '.env') });
 
 import express from "express";
 import cookieParser from "cookie-parser";
@@ -32,7 +47,7 @@ import cnicRoutes from "./modules/cnic/cnic.routes.js";
 import userRoutes from "./modules/users/user.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
 import disputeRoutes from "./modules/disputes/dispute.routes.js";
-import { errorHandler } from "./core/errors/index.js";
+import { errorHandler, createAppError } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
 
@@ -49,30 +64,30 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-app.use(
-  session({
-    secret:
-      process.env.SESSION_SECRET ||
-      "your-super-secret-session-key-change-in-production-min-32-chars",
-    resave: false,
-    saveUninitialized: false,
-    store: MongoStore.create({
-      mongoUrl: process.env.MONGO_URI,
-      touchAfter: 24 * 3600,
-      crypto: {
-        secret:
-          process.env.SESSION_SECRET ||
-          "your-super-secret-session-key-change-in-production-min-32-chars",
-      },
-    }),
-    cookie: {
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-      httpOnly: true,
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+const sessionOptions = {
+  secret: process.env.SESSION_SECRET || "your-super-secret-session-key-change-in-production-min-32-chars",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  },
+};
+
+// Avoid connecting to MongoDB for session store when running tests
+if (process.env.NODE_ENV !== 'test') {
+  sessionOptions.store = MongoStore.create({
+    mongoUrl: process.env.MONGO_URI,
+    touchAfter: 24 * 3600,
+    crypto: {
+      secret: process.env.SESSION_SECRET || "your-super-secret-session-key-change-in-production-min-32-chars",
     },
-  })
-);
+  });
+}
+
+app.use(session(sessionOptions));
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -92,6 +107,8 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
   });
 });
+import { getDatabaseHealth, isDatabaseConnected } from "./core/health.js";
+
 app.get("/api/health", async (req, res) => {
   const healthcheck = {
     success: true,
@@ -104,21 +121,9 @@ app.get("/api/health", async (req, res) => {
   };
 
   try {
-    const mongoose = (await import("mongoose")).default;
-    const dbState = mongoose.connection.readyState;
-    const dbStates = {
-      0: "disconnected",
-      1: "connected",
-      2: "connecting",
-      3: "disconnecting",
-    };
-    healthcheck.services.database = {
-      status: dbState === 1 ? "healthy" : "unhealthy",
-      state: dbStates[dbState],
-      name: mongoose.connection.name || "N/A",
-      host: mongoose.connection.host || "N/A",
-    };
-    if (dbState !== 1) {
+    const db = await getDatabaseHealth();
+    healthcheck.services.database = db;
+    if (db.status !== 'healthy') {
       healthcheck.success = false;
       healthcheck.status = "degraded";
     }
@@ -165,8 +170,7 @@ app.get("/api/health", async (req, res) => {
 
 app.get("/api/health/ready", async (req, res) => {
   try {
-    const mongoose = (await import("mongoose")).default;
-    const dbConnected = mongoose.connection.readyState === 1;
+    const dbConnected = await isDatabaseConnected();
     if (!dbConnected) {
       return res.status(503).json({
         success: false,
@@ -256,7 +260,7 @@ app.use("/api/admin/health", healthRoutes);
 app.use("/api/admin/env-vars", envVarsRoutes);
 
 app.all("*", (req, res, next) => {
-  next(AppError(`Cannot find ${req.originalUrl} on this server`, 404));
+  next(createAppError(`Cannot find ${req.originalUrl} on this server`, 404));
 });
 
 app.use(errorHandler);

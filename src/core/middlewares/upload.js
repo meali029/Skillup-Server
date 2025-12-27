@@ -1,14 +1,12 @@
 import multer from "multer";
 import path from "path";
-import { fileURLToPath } from "url";
 import fs from "fs";
-import { AppError } from "../errors/index.js";
+import { createAppError } from "../errors/index.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+// Use process.cwd() as base to avoid import.meta usage which can break Jest parsing
 // Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, "../../../uploads");
+const uploadsDir = path.join(process.cwd(), "uploads");
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -27,24 +25,18 @@ const storage = multer.diskStorage({
 });
 
 // File filter to accept only images
-const fileFilter = (req, file, cb) => {
+export const fileFilter = (req, file, cb) => {
   const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
   
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(
-      new AppError(
-        "Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed",
-        400
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed"), false);
   }
 };
 
 // File filter for CNIC documents (images and PDFs)
-const cnicFileFilter = (req, file, cb) => {
+export const cnicFileFilter = (req, file, cb) => {
   const allowedTypes = [
     "image/jpeg", 
     "image/jpg", 
@@ -57,13 +49,7 @@ const cnicFileFilter = (req, file, cb) => {
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(
-      new AppError(
-        "Invalid file type. Only JPEG, PNG, GIF, WebP images, and PDF documents are allowed for CNIC verification",
-        400
-      ),
-      false
-    );
+    cb(new Error("Invalid file type. Only JPEG, PNG, GIF, WebP images, and PDF documents are allowed for CNIC verification"), false);
   }
 };
 
@@ -89,12 +75,12 @@ const uploadCNIC = multer({
 export const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
-      return next(AppError("File size too large. Maximum size is 5MB", 400));
+      return next(createAppError("File size too large. Maximum size is 5MB", 400));
     }
     if (err.code === "LIMIT_UNEXPECTED_FILE") {
-      return next(AppError("Too many files uploaded", 400));
+      return next(createAppError("Too many files uploaded", 400));
     }
-    return next(AppError(err.message, 400));
+    return next(createAppError(err.message, 400));
   }
   next(err);
 };
