@@ -272,15 +272,25 @@ export const emitMessageEdited = (conversationId, message) => {
 };
 
 // Emit message deleted event
-export const emitMessageDeleted = (conversationId, messageId) => {
+export const emitMessageDeleted = (conversationId, messageId, userId = null) => {
   if (!io) {
     console.warn('[Socket] Socket.io not initialized');
     return;
   }
 
-  io.to(`conversation:${conversationId}`).emit('message:deleted', {
-    messageId,
-  });
+  // If userId provided, emit only to that user (per-user deletion)
+  // Otherwise emit to all participants (global deletion)
+  if (userId) {
+    io.to(`user:${userId}`).emit('message:deleted', {
+      messageId,
+      conversationId,
+    });
+  } else {
+    io.to(`conversation:${conversationId}`).emit('message:deleted', {
+      messageId,
+      conversationId,
+    });
+  }
 };
 
 // Emit contract event

@@ -44,9 +44,23 @@ class MessageService {
   async getConversations(userId, options = {}) {
     const conversations = await Conversation.findByUser(userId, options);
 
-    return conversations.map((conv) => ({
+    // Sort: pinned conversations first, then by lastMessageAt
+    const sorted = conversations.sort((a, b) => {
+      const aPinned = a.isPinnedBy(userId);
+      const bPinned = b.isPinnedBy(userId);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      const aDate = new Date(a.lastMessageAt || 0);
+      const bDate = new Date(b.lastMessageAt || 0);
+      return bDate - aDate;
+    });
+
+    return sorted.map((conv) => ({
       ...conv.toObject(),
       unreadCount: conv.getUnreadCount(userId),
+      pinnedBy: conv.pinnedBy || [],
+      mutedBy: conv.mutedBy || [],
+      archivedBy: conv.archivedBy || [],
     }));
   }
 
@@ -123,11 +137,27 @@ class MessageService {
     conversation.participants.forEach((participantId) => {
       if (participantId.toString() !== senderId.toString()) {
         conversation.incrementUnread(participantId);
+        
+        // If conversation was deleted by recipient, restore it (remove from deletedBy)
+        // This allows the conversation to reappear when a new message is sent
+        if (conversation.deletedBy.some(id => id.toString() === participantId.toString())) {
+          conversation.deletedBy = conversation.deletedBy.filter(
+            (id) => id.toString() !== participantId.toString()
+          );
+        }
       }
     });
 
     conversation.lastMessage = message._id;
     conversation.lastMessageAt = message.createdAt;
+    
+    // If conversation was deleted by sender, restore it (remove from deletedBy)
+    if (conversation.deletedBy.some(id => id.toString() === senderId.toString())) {
+      conversation.deletedBy = conversation.deletedBy.filter(
+        (id) => id.toString() !== senderId.toString()
+      );
+    }
+    
     await conversation.save();
 
     await message.populate('sender', 'name avatar email');
@@ -187,8 +217,13 @@ class MessageService {
         limit,
         skip,
         order: options.order,
+        userId, // Pass userId to filter deletedBy
       }),
-      Message.countDocuments({ conversation: conversationId, isDeleted: false }),
+      Message.countDocuments({ 
+        conversation: conversationId, 
+        isDeleted: false,
+        deletedBy: { $nin: [userId] },
+      }),
     ]);
 
     return {
@@ -256,6 +291,16 @@ class MessageService {
   }
 
   async deleteMessage(conversationId, messageId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+    
+    if (!conversation) {
+      throw AppError('Conversation not found', 404);
+    }
+
+    if (!conversation.isParticipant(userId)) {
+      throw AppError('You do not have access to this conversation', 403);
+    }
+
     const message = await Message.findOne({
       _id: messageId,
       conversation: conversationId,
@@ -265,18 +310,24 @@ class MessageService {
       throw AppError('Message not found', 404);
     }
 
-    if (!message.canBeModifiedBy(userId)) {
-      throw AppError('You can only delete your own messages', 403);
-    }
+    // Check if already deleted by this user
+    const isOwnMessage = message.sender.toString() === userId.toString();
+    const alreadyDeletedByUser = message.deletedBy.some(
+      (id) => id.toString() === userId.toString()
+    );
 
-    if (message.isDeleted) {
+    if (isOwnMessage && message.isDeleted) {
       throw AppError('Message already deleted', 400);
     }
 
-    await message.softDelete();
+    if (!isOwnMessage && alreadyDeletedByUser) {
+      throw AppError('Message already deleted', 400);
+    }
 
-    // Emit socket event
-    emitMessageDeleted(conversationId, messageId);
+    await message.softDelete(userId);
+
+    // Emit socket event with userId to update only the deleting user's view
+    emitMessageDeleted(conversationId, messageId, userId);
 
     // TODO: Fix audit logging API
     // await createAuditLog({
@@ -284,7 +335,7 @@ class MessageService {
     //   action: 'MESSAGE_DELETED',
     //   targetType: 'Message',
     //   targetId: message._id.toString(),
-    //   details: { conversationId },
+    //   details: { conversationId, isOwnMessage },
     // });
 
     return message;
@@ -341,7 +392,8 @@ class MessageService {
 
     const messages = await Message.searchInConversation(
       conversationId,
-      searchTerm
+      searchTerm,
+      userId
     );
 
     return messages;
@@ -359,6 +411,116 @@ class MessageService {
     });
 
     return totalUnread;
+  }
+
+  async pinConversation(conversationId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      throw AppError('Conversation not found', 404);
+    }
+
+    if (!conversation.isParticipant(userId)) {
+      throw AppError('You do not have access to this conversation', 403);
+    }
+
+    // Check if already pinned
+    if (conversation.pinnedBy.some(id => id.toString() === userId.toString())) {
+      return conversation; // Already pinned, return as is
+    }
+
+    // Check if user has already pinned 3 conversations
+    const userPinnedConversations = await Conversation.find({
+      participants: userId,
+      isActive: true,
+      pinnedBy: userId,
+    });
+
+    if (userPinnedConversations.length >= 3) {
+      throw AppError('You can only pin up to 3 conversations', 400);
+    }
+
+    conversation.pinnedBy.push(userId);
+    await conversation.save();
+
+    return conversation;
+  }
+
+  async unpinConversation(conversationId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      throw AppError('Conversation not found', 404);
+    }
+
+    if (!conversation.isParticipant(userId)) {
+      throw AppError('You do not have access to this conversation', 403);
+    }
+
+    conversation.pinnedBy = conversation.pinnedBy.filter(
+      (id) => id.toString() !== userId.toString()
+    );
+    await conversation.save();
+
+    return conversation;
+  }
+
+  async muteConversation(conversationId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      throw AppError('Conversation not found', 404);
+    }
+
+    if (!conversation.isParticipant(userId)) {
+      throw AppError('You do not have access to this conversation', 403);
+    }
+
+    if (!conversation.mutedBy.includes(userId)) {
+      conversation.mutedBy.push(userId);
+      await conversation.save();
+    }
+
+    return conversation;
+  }
+
+  async unmuteConversation(conversationId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      throw AppError('Conversation not found', 404);
+    }
+
+    if (!conversation.isParticipant(userId)) {
+      throw AppError('You do not have access to this conversation', 403);
+    }
+
+    conversation.mutedBy = conversation.mutedBy.filter(
+      (id) => id.toString() !== userId.toString()
+    );
+    await conversation.save();
+
+    return conversation;
+  }
+
+  async deleteConversation(conversationId, userId) {
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      throw AppError('Conversation not found', 404);
+    }
+
+    if (!conversation.isParticipant(userId)) {
+      throw AppError('You do not have access to this conversation', 403);
+    }
+
+    // Per-user soft delete: add userId to deletedBy array
+    if (!conversation.deletedBy.includes(userId)) {
+      conversation.deletedBy.push(userId);
+      await conversation.save();
+    }
+
+    return conversation;
   }
 }
 

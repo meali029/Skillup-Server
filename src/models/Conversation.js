@@ -53,6 +53,24 @@ const conversationSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    pinnedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    mutedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    deletedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     metadata: {
       jobTitle: String,
       proposalAmount: Number,
@@ -113,18 +131,44 @@ conversationSchema.methods.isArchivedBy = function (userId) {
   );
 };
 
+conversationSchema.methods.isPinnedBy = function (userId) {
+  return this.pinnedBy.some(
+    (id) => id.toString() === userId.toString()
+  );
+};
+
+conversationSchema.methods.isMutedBy = function (userId) {
+  return this.mutedBy.some(
+    (id) => id.toString() === userId.toString()
+  );
+};
+
+conversationSchema.methods.isDeletedBy = function (userId) {
+  return this.deletedBy.some(
+    (id) => id.toString() === userId.toString()
+  );
+};
+
 // Statics
-conversationSchema.statics.findByUser = function (userId, options = {}) {
+conversationSchema.statics.findByUser = async function (userId, options = {}) {
   const query = {
     participants: userId,
     isActive: true,
   };
   
-  if (!options.includeArchived) {
-    query.archivedBy = { $ne: userId };
+  if (options.includeArchived) {
+    // When includeArchived is true, only return conversations archived by this user
+    // archivedBy is an array, so we check if userId is in the array
+    query.archivedBy = { $in: [userId] };
+  } else {
+    // When includeArchived is false, exclude conversations archived by this user
+    query.archivedBy = { $nin: [userId] };
   }
   
-  return this.find(query)
+  // Exclude conversations deleted by this user
+  query.deletedBy = { $nin: [userId] };
+  
+  const conversations = await this.find(query)
     .populate('participants', 'name avatar email role')
     .populate('lastMessage')
     .populate('job', 'title description budget')
@@ -138,36 +182,57 @@ conversationSchema.statics.findByUser = function (userId, options = {}) {
     })
     .populate('contract', 'status title totalAmount')
     .sort({ lastMessageAt: -1 });
+  
+  // Sort conversations: pinned first, then by lastMessageAt
+  return conversations.sort((a, b) => {
+    const aPinned = a.isPinnedBy(userId);
+    const bPinned = b.isPinnedBy(userId);
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+    return new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0);
+  });
 };
 
 conversationSchema.statics.findBetweenUsers = function (user1Id, user2Id, context = {}) {
-  const query = {
+  const baseQuery = {
     participants: { $all: [user1Id, user2Id] },
     isActive: true,
   };
-  
-  if (context.job) query.job = context.job;
-  if (context.contract) query.contract = context.contract;
-  
-  return this.findOne(query);
+
+  // First try to find ANY existing conversation between these users (regardless of context)
+  return this.findOne(baseQuery);
 };
 
 conversationSchema.statics.findOrCreate = async function (participants, context = {}) {
+  // First check for ANY conversation between these users (ignore context to avoid duplicates)
   let conversation = await this.findBetweenUsers(
     participants[0],
     participants[1],
-    context
+    {} // empty context on purpose
   );
-  
+
   if (!conversation) {
+    // Create new conversation with provided context
     const data = {
       participants,
       ...context,
     };
     conversation = await this.create(data);
     await conversation.populate('participants', 'name avatar email role');
+  } else {
+    // Update existing conversation with missing context fields so it reflects latest linkage
+    let shouldSave = false;
+    if (context.job && !conversation.job) { conversation.job = context.job; shouldSave = true; }
+    if (context.proposal && !conversation.proposal) { conversation.proposal = context.proposal; shouldSave = true; }
+    if (context.contract && !conversation.contract) { conversation.contract = context.contract; shouldSave = true; }
+    if (context.metadata) { conversation.metadata = { ...conversation.metadata, ...context.metadata }; shouldSave = true; }
+    if (context.type && conversation.type !== context.type) { conversation.type = context.type; shouldSave = true; }
+
+    if (shouldSave) {
+      await conversation.save();
+    }
   }
-  
+
   return conversation;
 };
 

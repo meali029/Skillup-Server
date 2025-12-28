@@ -73,6 +73,12 @@ const messageSchema = new mongoose.Schema(
     deletedAt: {
       type: Date,
     },
+    deletedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     metadata: {
       type: Map,
       of: mongoose.Schema.Types.Mixed,
@@ -141,10 +147,19 @@ messageSchema.methods.edit = function (newContent) {
   return this.save();
 };
 
-messageSchema.methods.softDelete = function () {
-  this.isDeleted = true;
-  this.deletedAt = new Date();
-  this.content = 'This message has been deleted';
+messageSchema.methods.softDelete = function (userId) {
+  // If sender deletes their own message, hide from everyone
+  if (this.sender.toString() === userId.toString()) {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.content = 'This message has been deleted';
+  } else {
+    // If other user deletes message, only hide from their side
+    // Don't set isDeleted=true, just add to deletedBy array
+    if (!this.deletedBy.includes(userId)) {
+      this.deletedBy.push(userId);
+    }
+  }
   return this.save();
 };
 
@@ -153,10 +168,18 @@ messageSchema.statics.findByConversation = function (
   conversationId,
   options = {}
 ) {
+  const userId = options.userId;
+  
+  // Base query: not globally deleted (isDeleted=false)
   const query = {
     conversation: conversationId,
     isDeleted: false,
   };
+  
+  // If userId provided, also exclude messages deleted by this user
+  if (userId) {
+    query.deletedBy = { $nin: [userId] };
+  }
   
   let queryBuilder = this.find(query)
     .populate('sender', 'name avatar email')
@@ -180,6 +203,7 @@ messageSchema.statics.countUnread = function (conversationId, userId) {
     sender: { $ne: userId },
     'readBy.user': { $ne: userId },
     isDeleted: false,
+    deletedBy: { $nin: [userId] },
   });
 };
 
@@ -189,6 +213,7 @@ messageSchema.statics.markAllAsRead = async function (conversationId, userId) {
     sender: { $ne: userId },
     'readBy.user': { $ne: userId },
     isDeleted: false,
+    deletedBy: { $nin: [userId] },
   });
   
   const promises = unreadMessages.map((msg) => msg.markAsRead(userId));
@@ -197,13 +222,20 @@ messageSchema.statics.markAllAsRead = async function (conversationId, userId) {
 
 messageSchema.statics.searchInConversation = function (
   conversationId,
-  searchTerm
+  searchTerm,
+  userId = null
 ) {
-  return this.find({
+  const query = {
     conversation: conversationId,
     $text: { $search: searchTerm },
     isDeleted: false,
-  })
+  };
+  
+  if (userId) {
+    query.deletedBy = { $nin: [userId] };
+  }
+  
+  return this.find(query)
     .populate('sender', 'name avatar')
     .sort({ score: { $meta: 'textScore' } });
 };

@@ -29,4 +29,25 @@ describe('Conversation Model', () => {
     const fresh = await Conversation.findById(convo._id);
     expect(fresh.isArchivedBy(u1._id)).toBe(true);
   });
+
+  it('reuses existing conversation and updates context fields when found', async () => {
+    const u1 = await User.create({ name: 'Alice', email: 'alice@example.com' });
+    const u2 = await User.create({ name: 'Bob', email: 'bob@example.com' });
+
+    const jobId = new (await import('mongoose')).Types.ObjectId();
+    const proposalId = new (await import('mongoose')).Types.ObjectId();
+    const contractId = new (await import('mongoose')).Types.ObjectId();
+
+    // Create initial conversation with job + proposal
+    const convo1 = await Conversation.findOrCreate([u1._id, u2._id], { job: jobId, proposal: proposalId, type: 'proposal' });
+    expect(convo1).toBeDefined();
+    expect(convo1.proposal.toString()).toBe(proposalId.toString());
+
+    // Now call findOrCreate with job + contract; it should reuse the same convo and attach the contract
+    const convo2 = await Conversation.findOrCreate([u1._id, u2._id], { job: jobId, contract: contractId, type: 'contract' });
+    expect(convo2._id.toString()).toBe(convo1._id.toString());
+
+    const fresh = await Conversation.findById(convo1._id);
+    expect(fresh.contract.toString()).toBe(contractId.toString());
+  });
 });

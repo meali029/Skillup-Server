@@ -345,17 +345,19 @@ export const acceptProposal = async (proposalId, clientId) => {
 
   proposal.status = "accepted";
   
-  // Create conversation between client and freelancer
-  const conversation = await Conversation.create({
-    participants: [clientId, proposal.freelancerId],
-    job: proposal.jobId._id,
-    proposal: proposalId,
-    type: 'proposal',
-    metadata: {
-      jobTitle: proposal.jobId.title,
-      proposalAmount: proposal.bidAmount,
-    },
-  });
+  // Create or get existing conversation between client and freelancer
+  const conversation = await Conversation.findOrCreate(
+    [clientId, proposal.freelancerId],
+    {
+      job: proposal.jobId._id,
+      proposal: proposalId,
+      type: 'proposal',
+      metadata: {
+        jobTitle: proposal.jobId.title,
+        proposalAmount: proposal.bidAmount,
+      },
+    }
+  );
 
   // Create initial system message
   const initialMessage = await Message.create({
