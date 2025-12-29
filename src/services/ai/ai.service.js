@@ -10,14 +10,25 @@ import { sanitizeUser, sanitizeJob } from './data-sanitizer.js';
 import adminSettingsService from '../../modules/admin/admin.settings.service.js';
 import aiConfig from '../../config/ai.config.js';
 import circuitBreaker from './circuit-breaker.js';
+import rateLimiterService from './rate-limiter.service.js';
 import {
   AIProviderError,
   AIConfigurationError,
 } from '../../core/errors/ai.errors.js';
 
-// Simple in-memory cache (can be replaced with Redis later)
+// Enhanced in-memory cache with LRU eviction
 const cache = new Map();
 const CACHE_TTL = aiConfig.cacheTTL * 1000; // Convert to milliseconds
+const DEFAULT_CACHE_SIZE_LIMIT = 1000; // Maximum number of cache entries
+let cacheSizeLimit = DEFAULT_CACHE_SIZE_LIMIT;
+
+// Cache statistics
+const cacheStats = {
+  hits: 0,
+  misses: 0,
+  evictions: 0,
+  sets: 0,
+};
 
 /**
  * Generate cache key from input
@@ -28,39 +39,120 @@ const generateCacheKey = (prefix, data) => {
 };
 
 /**
- * Get cached value
+ * Get cached value (with LRU tracking)
  */
 const getCached = (key) => {
   if (!aiConfig.cacheEnabled) {
+    cacheStats.misses++;
     return null;
   }
 
   const cached = cache.get(key);
   if (!cached) {
+    cacheStats.misses++;
     return null;
   }
 
   // Check if expired
   if (Date.now() - cached.timestamp > CACHE_TTL) {
     cache.delete(key);
+    cacheStats.misses++;
     return null;
   }
 
+  // Update access time for LRU
+  cached.lastAccessed = Date.now();
+  cacheStats.hits++;
   return cached.value;
 };
 
 /**
- * Set cached value
+ * Set cached value (with LRU eviction)
  */
 const setCached = (key, value) => {
   if (!aiConfig.cacheEnabled) {
     return;
   }
 
+  // Evict oldest entries if cache is full
+  if (cache.size >= cacheSizeLimit && !cache.has(key)) {
+    evictLRU();
+  }
+
   cache.set(key, {
     value,
     timestamp: Date.now(),
+    lastAccessed: Date.now(),
   });
+  cacheStats.sets++;
+};
+
+/**
+ * Evict least recently used entry
+ */
+const evictLRU = () => {
+  if (cache.size === 0) return;
+
+  let oldestKey = null;
+  let oldestTime = Date.now();
+
+  for (const [key, entry] of cache.entries()) {
+    if (entry.lastAccessed < oldestTime) {
+      oldestTime = entry.lastAccessed;
+      oldestKey = key;
+    }
+  }
+
+  if (oldestKey) {
+    cache.delete(oldestKey);
+    cacheStats.evictions++;
+  }
+};
+
+/**
+ * Clear cache by prefix
+ */
+const clearCacheByPrefix = (prefix) => {
+  let cleared = 0;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix + ':')) {
+      cache.delete(key);
+      cleared++;
+    }
+  }
+  return cleared;
+};
+
+/**
+ * Get cache statistics (internal function)
+ */
+const getCacheStatistics = () => {
+  const total = cacheStats.hits + cacheStats.misses;
+  const hitRate = total > 0 ? (cacheStats.hits / total) * 100 : 0;
+
+  return {
+    size: cache.size,
+    maxSize: cacheSizeLimit,
+    hitRate: parseFloat(hitRate.toFixed(2)),
+    hits: cacheStats.hits,
+    misses: cacheStats.misses,
+    evictions: cacheStats.evictions,
+    sets: cacheStats.sets,
+    enabled: aiConfig.cacheEnabled,
+    ttl: aiConfig.cacheTTL,
+  };
+};
+
+/**
+ * Set cache size limit
+ */
+const setCacheSizeLimit = (limit) => {
+  cacheSizeLimit = Math.max(100, limit); // Minimum 100 entries
+  
+  // Evict if current size exceeds new limit
+  while (cache.size > cacheSizeLimit) {
+    evictLRU();
+  }
 };
 
 /**
@@ -205,7 +297,14 @@ class AIService {
 
         return result;
       } catch (error) {
-        console.error('[AI Service] Error enhancing match score:', error);
+        console.error('[AI Service] Error enhancing match score:', {
+          error: error.message,
+          stack: error.stack,
+          jobId: job._id?.toString(),
+          freelancerId: freelancer._id?.toString(),
+          baseScore,
+          timestamp: new Date().toISOString(),
+        });
         throw error; // Let circuit breaker handle it
       }
     }, fallback);
@@ -286,7 +385,13 @@ class AIService {
 
       return result;
     } catch (error) {
-      console.error('[AI Service] Error generating proposal draft:', error);
+      console.error('[AI Service] Error generating proposal draft:', {
+        error: error.message,
+        stack: error.stack,
+        jobId: job._id?.toString(),
+        freelancerId: freelancer._id?.toString(),
+        timestamp: new Date().toISOString(),
+      });
       throw AIProviderError(`Failed to generate proposal draft: ${error.message}`);
     }
   }
@@ -352,27 +457,436 @@ class AIService {
   }
 
   /**
+   * Generate job recommendations for a freelancer
+   * @param {Object} freelancer - Freelancer object (will be sanitized)
+   * @param {Array} jobs - Array of job objects to rank
+   * @returns {Promise<Array>} Array of jobs with AI recommendation scores
+   */
+  async generateJobRecommendations(freelancer, jobs) {
+    // Check feature flag
+    const isEnabled = await adminSettingsService.isFeatureEnabled('jobRecommendations');
+    if (!isEnabled) {
+      return jobs.map(job => ({
+        job,
+        aiScore: 0,
+        reasoning: 'AI recommendations disabled',
+        strengths: [],
+        concerns: [],
+      }));
+    }
+
+    if (!jobs || jobs.length === 0) {
+      return [];
+    }
+
+    const sanitizedFreelancer = sanitizeUser(freelancer);
+    const results = [];
+
+    // Process jobs in parallel with circuit breaker protection
+    const fallback = (job) => ({
+      job,
+      aiScore: 0,
+      reasoning: 'AI recommendation unavailable',
+      strengths: [],
+      concerns: [],
+    });
+
+    for (const job of jobs) {
+      try {
+        const sanitizedJob = sanitizeJob(job);
+        
+        // Check cache
+        const cacheKey = generateCacheKey('jobRec', {
+          freelancerId: freelancer._id?.toString(),
+          jobId: job._id?.toString(),
+        });
+        const cached = getCached(cacheKey);
+        if (cached) {
+          results.push({ job, ...cached });
+          continue;
+        }
+
+        // Generate prompt
+        const prompt = promptManager.generateJobRecommendationPrompt(sanitizedJob, sanitizedFreelancer);
+        
+        // Call AI with circuit breaker
+        const recommendation = await circuitBreaker.execute(async () => {
+          const provider = await getProvider();
+          const response = await provider.generateText(prompt, {
+            maxTokens: 500,
+            temperature: 0.6,
+          });
+
+          // Parse JSON response
+          let analysis;
+          try {
+            const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              analysis = JSON.parse(jsonMatch[0]);
+            } else {
+              throw new Error('No JSON found in response');
+            }
+          } catch (parseError) {
+            // Fallback parsing
+            analysis = {
+              score: 50,
+              strengths: ['Skills match'],
+              concerns: [],
+              reasoning: response.text.substring(0, 200),
+            };
+          }
+
+          return {
+            aiScore: Math.min(100, Math.max(0, analysis.score || 50)),
+            reasoning: analysis.reasoning || 'Recommendation generated',
+            strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
+            concerns: Array.isArray(analysis.concerns) ? analysis.concerns : [],
+            confidence: response.confidence || 75,
+          };
+        }, () => fallback(job));
+
+        // Cache result
+        setCached(cacheKey, recommendation);
+
+        results.push({ job, ...recommendation });
+      } catch (error) {
+        console.error('[AI Service] Error generating job recommendation:', {
+          error: error.message,
+          stack: error.stack,
+          jobId: job._id?.toString(),
+          freelancerId: freelancer._id?.toString(),
+          timestamp: new Date().toISOString(),
+        });
+        results.push(fallback(job));
+      }
+    }
+
+    // Sort by AI score descending
+    return results.sort((a, b) => b.aiScore - a.aiScore);
+  }
+
+  /**
+   * Generate freelancer recommendations for a job
+   * @param {Object} job - Job object (will be sanitized)
+   * @param {Array} freelancers - Array of freelancer objects to rank
+   * @returns {Promise<Array>} Array of freelancers with AI recommendation scores
+   */
+  async generateFreelancerRecommendations(job, freelancers) {
+    // Check feature flag
+    const isEnabled = await adminSettingsService.isFeatureEnabled('freelancerRecommendations');
+    if (!isEnabled) {
+      return freelancers.map(freelancer => ({
+        freelancer,
+        aiScore: 0,
+        reasoning: 'AI recommendations disabled',
+        strengths: [],
+        concerns: [],
+      }));
+    }
+
+    if (!freelancers || freelancers.length === 0) {
+      return [];
+    }
+
+    const sanitizedJob = sanitizeJob(job);
+    const results = [];
+
+    // Process freelancers in parallel with circuit breaker protection
+    const fallback = (freelancer) => ({
+      freelancer,
+      aiScore: 0,
+      reasoning: 'AI recommendation unavailable',
+      strengths: [],
+      concerns: [],
+    });
+
+    for (const freelancer of freelancers) {
+      try {
+        const sanitizedFreelancer = sanitizeUser(freelancer);
+        
+        // Check cache
+        const cacheKey = generateCacheKey('freelancerRec', {
+          jobId: job._id?.toString(),
+          freelancerId: freelancer._id?.toString(),
+        });
+        const cached = getCached(cacheKey);
+        if (cached) {
+          results.push({ freelancer, ...cached });
+          continue;
+        }
+
+        // Generate prompt
+        const prompt = promptManager.generateFreelancerRecommendationPrompt(sanitizedJob, sanitizedFreelancer);
+        
+        // Call AI with circuit breaker
+        const recommendation = await circuitBreaker.execute(async () => {
+          const provider = await getProvider();
+          const response = await provider.generateText(prompt, {
+            maxTokens: 500,
+            temperature: 0.6,
+          });
+
+          // Parse JSON response
+          let analysis;
+          try {
+            const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              analysis = JSON.parse(jsonMatch[0]);
+            } else {
+              throw new Error('No JSON found in response');
+            }
+          } catch (parseError) {
+            // Fallback parsing
+            analysis = {
+              score: 50,
+              strengths: ['Skills match'],
+              concerns: [],
+              reasoning: response.text.substring(0, 200),
+            };
+          }
+
+          return {
+            aiScore: Math.min(100, Math.max(0, analysis.score || 50)),
+            reasoning: analysis.reasoning || 'Recommendation generated',
+            strengths: Array.isArray(analysis.strengths) ? analysis.strengths : [],
+            concerns: Array.isArray(analysis.concerns) ? analysis.concerns : [],
+            confidence: response.confidence || 75,
+          };
+        }, () => fallback(freelancer));
+
+        // Cache result
+        setCached(cacheKey, recommendation);
+
+        results.push({ freelancer, ...recommendation });
+      } catch (error) {
+        console.error('[AI Service] Error generating freelancer recommendation:', {
+          error: error.message,
+          stack: error.stack,
+          jobId: job._id?.toString(),
+          freelancerId: freelancer._id?.toString(),
+          timestamp: new Date().toISOString(),
+        });
+        results.push(fallback(freelancer));
+      }
+    }
+
+    // Sort by AI score descending
+    return results.sort((a, b) => b.aiScore - a.aiScore);
+  }
+
+  /**
+   * Rank proposals with AI based on proposal quality, profile match, and contract history
+   * @param {Object} job - Job object (will be sanitized)
+   * @param {Array<Object>} proposalsWithData - Array of { proposal, freelancer, contractHistory }
+   * @returns {Promise<Array>} Array of ranked proposals with AI scores
+   */
+  async rankProposalsWithAI(job, proposalsWithData) {
+    // Check feature flag
+    const isEnabled = await adminSettingsService.isFeatureEnabled('freelancerRecommendations');
+    if (!isEnabled) {
+      return proposalsWithData.map(({ proposal, freelancer, contractHistory }) => ({
+        proposal,
+        freelancer,
+        contractHistory,
+        aiScore: 0,
+        reasoning: 'AI recommendations disabled',
+        strengths: [],
+        concerns: [],
+        confidence: 0,
+      }));
+    }
+
+    if (!proposalsWithData || proposalsWithData.length === 0) {
+      return [];
+    }
+
+    const sanitizedJob = sanitizeJob(job);
+    
+    // Check cache
+    const cacheKey = generateCacheKey('proposalRanking', {
+      jobId: job._id?.toString(),
+      proposalIds: proposalsWithData.map(p => p.proposal._id?.toString() || p.proposal.id).join(','),
+    });
+    const cached = getCached(cacheKey);
+    if (cached) {
+      // Merge cached results with original data
+      return proposalsWithData.map((item, index) => ({
+        ...item,
+        ...(cached[index] || {}),
+      }));
+    }
+
+    try {
+      // Generate prompt with all proposals
+      const prompt = promptManager.generateProposalRankingPrompt(sanitizedJob, proposalsWithData);
+      
+      // Call AI with circuit breaker
+      const response = await circuitBreaker.execute(async () => {
+        const provider = await getProvider();
+        return await provider.generateText(prompt, {
+          maxTokens: 2000, // More tokens for multiple freelancers
+          temperature: 0.6,
+        });
+      }, () => {
+        // Fallback: return basic scores
+        return proposalsWithData.map(({ proposal, freelancer, contractHistory }) => ({
+          proposal,
+          freelancer,
+          contractHistory,
+          aiScore: 50,
+          reasoning: 'AI ranking unavailable',
+          strengths: [],
+          concerns: [],
+          confidence: 0,
+        }));
+      });
+
+      // Parse JSON response (should be an array)
+      let rankings = [];
+      try {
+        const jsonMatch = response.text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          rankings = JSON.parse(jsonMatch[0]);
+        } else {
+          // Try to parse individual objects
+          const objectMatches = response.text.match(/\{[\s\S]*?\}/g);
+          if (objectMatches) {
+            rankings = objectMatches.map(match => JSON.parse(match));
+          } else {
+            throw new Error('No JSON array found in response');
+          }
+        }
+      } catch (parseError) {
+        console.error('[AI Service] Error parsing proposal ranking response:', parseError);
+        // Fallback: create basic rankings
+        rankings = proposalsWithData.map(({ proposal, freelancer, contractHistory }) => ({
+          freelancerId: freelancer._id?.toString() || freelancer.id,
+          proposalId: proposal._id?.toString() || proposal.id,
+          aiScore: 50,
+          confidence: 50,
+          reasoning: 'Unable to parse AI response',
+          strengths: [],
+          concerns: [],
+        }));
+      }
+
+      // Map rankings back to proposals
+      const results = proposalsWithData.map(({ proposal, freelancer, contractHistory }) => {
+        const proposalId = proposal._id?.toString() || proposal.id;
+        const freelancerId = freelancer._id?.toString() || freelancer.id;
+        
+        // Find matching ranking
+        const ranking = rankings.find(r => 
+          (r.proposalId && r.proposalId.toString() === proposalId) ||
+          (r.freelancerId && r.freelancerId.toString() === freelancerId)
+        ) || {};
+
+        return {
+          proposal,
+          freelancer,
+          contractHistory,
+          aiScore: Math.min(100, Math.max(0, ranking.aiScore || 50)),
+          confidence: Math.min(100, Math.max(0, ranking.confidence || 50)),
+          reasoning: ranking.reasoning || 'AI recommendation generated',
+          strengths: Array.isArray(ranking.strengths) ? ranking.strengths : [],
+          concerns: Array.isArray(ranking.concerns) ? ranking.concerns : [],
+          proposalQuality: ranking.proposalQuality || {},
+          profileMatch: ranking.profileMatch || {},
+          trackRecord: ranking.trackRecord || {},
+        };
+      });
+
+      // Sort by AI score descending
+      const sortedResults = results.sort((a, b) => b.aiScore - a.aiScore);
+
+      // Cache result
+      setCached(cacheKey, sortedResults.map(r => ({
+        aiScore: r.aiScore,
+        confidence: r.confidence,
+        reasoning: r.reasoning,
+        strengths: r.strengths,
+        concerns: r.concerns,
+        proposalQuality: r.proposalQuality,
+        profileMatch: r.profileMatch,
+        trackRecord: r.trackRecord,
+      })));
+
+      return sortedResults;
+    } catch (error) {
+      console.error('[AI Service] Error ranking proposals:', {
+        error: error.message,
+        stack: error.stack,
+        jobId: job._id?.toString(),
+        proposalCount: proposalsWithData.length,
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Return fallback results
+      return proposalsWithData.map(({ proposal, freelancer, contractHistory }) => ({
+        proposal,
+        freelancer,
+        contractHistory,
+        aiScore: 50,
+        reasoning: 'AI ranking failed',
+        strengths: [],
+        concerns: [],
+        confidence: 0,
+      }));
+    }
+  }
+
+  /**
+   * Clear cache by prefix
+   * @param {string} prefix - Cache prefix to clear
+   * @returns {number} Number of entries cleared
+   */
+  clearCache(prefix) {
+    return clearCacheByPrefix(prefix);
+  }
+
+  /**
+   * Get cache statistics
+   * @returns {Object} Cache statistics
+   */
+  getCacheStats() {
+    return getCacheStatistics();
+  }
+
+  /**
+   * Set cache size limit
+   * @param {number} limit - Maximum number of cache entries
+   */
+  setCacheSizeLimit(limit) {
+    setCacheSizeLimit(limit);
+  }
+
+  /**
    * Get AI service health and stats
    */
   async getHealthStatus() {
     const circuitBreakerStats = circuitBreaker.getStats();
+    const rateLimiterStats = rateLimiterService.getStats();
+    const cacheStatistics = getCacheStatistics();
     
     return {
       status: circuitBreakerStats.state === 'OPEN' ? 'unhealthy' : 'healthy',
       enabled: aiConfig.enabled,
       provider: aiConfig.provider,
       circuitBreaker: circuitBreakerStats,
-      cache: {
-        size: cache.size,
-        enabled: aiConfig.cacheEnabled,
-        ttl: aiConfig.cacheTTL,
+      cache: cacheStatistics,
+      rateLimiter: {
+        ...rateLimiterStats,
+        limits: {
+          perUser: {
+            proposalGeneration: aiConfig.rateLimit.perUser.proposalGeneration,
+            matchCalculation: aiConfig.rateLimit.perUser.matchCalculation,
+          },
+          global: {
+            maxRequests: aiConfig.rateLimit.global.maxRequests,
+          },
+        },
       },
       features: aiConfig.features,
-      rateLimit: {
-        proposal: aiConfig.rateLimit.proposalGeneration,
-        match: aiConfig.rateLimit.matchScoring,
-        global: aiConfig.rateLimit.global,
-      },
     };
   }
 

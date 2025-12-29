@@ -9,8 +9,12 @@ import Conversation from "./Conversation.js";
 import Message from "./Message.js";
 import AdminSettings from "./AdminSettings.js";
 import EnvironmentVariable from "./EnvironmentVariable.js";
+import Wallet from "./Wallet.js";
+import Escrow from "./Escrow.js";
+import Transaction from "./Transaction.js";
+import WithdrawalRequest from "./WithdrawalRequest.js";
 
-export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable };
+export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest };
 
 export default {
   User,
@@ -21,4 +25,8 @@ export default {
   Message,
   AdminSettings,
   EnvironmentVariable,
+  Wallet,
+  Escrow,
+  Transaction,
+  WithdrawalRequest,
 };

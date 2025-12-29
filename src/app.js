@@ -47,6 +47,8 @@ import cnicRoutes from "./modules/cnic/cnic.routes.js";
 import userRoutes from "./modules/users/user.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
 import disputeRoutes from "./modules/disputes/dispute.routes.js";
+import paymentRoutes from "./modules/payments/payment.routes.js";
+import paymentManagementRoutes from "./modules/admin/payments/payment-management.routes.js";
 import { errorHandler, createAppError } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
@@ -246,6 +248,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/disputes", disputeRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);
@@ -258,6 +261,7 @@ app.use("/api/admin/permissions", permissionsRoutes);
 app.use("/api/admin/settings", adminSettingsRoutes);
 app.use("/api/admin/health", healthRoutes);
 app.use("/api/admin/env-vars", envVarsRoutes);
+app.use("/api/admin/payments", paymentManagementRoutes);
 
 app.all("*", (req, res, next) => {
   next(createAppError(`Cannot find ${req.originalUrl} on this server`, 404));

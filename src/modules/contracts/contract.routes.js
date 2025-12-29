@@ -68,4 +68,24 @@ router.post(
   contractController.cancelContract
 );
 
+// Fund milestone escrow
+router.post(
+  '/:id/milestones/:milestoneId/fund',
+  validate(contractValidation.fundMilestoneEscrow),
+  contractController.fundMilestoneEscrow
+);
+
+// Approve milestone and release escrow
+router.post(
+  '/:id/milestones/:milestoneId/approve',
+  validate(contractValidation.approveMilestone),
+  contractController.approveMilestone
+);
+
+// Verify contract payment
+router.post(
+  '/:id/verify-payment',
+  contractController.verifyContractPayment
+);
+
 export default router;

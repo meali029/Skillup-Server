@@ -131,6 +131,21 @@ const contractSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     },
+    paymentStatus: {
+      type: String,
+      enum: ['PENDING', 'COMPLETED', 'FAILED'],
+      default: 'PENDING',
+      index: true,
+    },
+    initialEscrowId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Escrow',
+      index: true,
+    },
+    paymentTransactionId: {
+      type: String,
+      index: true,
+    },
     metadata: {
       type: Map,
       of: mongoose.Schema.Types.Mixed,

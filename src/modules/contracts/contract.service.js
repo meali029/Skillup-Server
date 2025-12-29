@@ -2,7 +2,7 @@ import Contract from '../../models/Contract.js';
 import Proposal from '../../models/Proposal.js';
 import Job from '../../models/Job.js';
 import Conversation from '../../models/Conversation.js';
-import AppError from '../../core/errors/AppError.js';
+import { createAppError } from '../../core/errors/index.js';
 import { createAuditLog } from '../../core/utils/auditLogger.js';
 import {
   CONTRACT_STATUS,
@@ -12,6 +12,8 @@ import {
   TERMINAL_STATUSES,
   isStatusTransitionAllowed,
 } from './contract.constants.js';
+import escrowService from '../payments/escrow.service.js';
+import paymentService from '../payments/payment.service.js';
 
 class ContractService {
   /**
@@ -22,8 +24,9 @@ class ContractService {
    * 3. Only the job owner (client) can create the contract
    * 4. Client and freelancer must be different users
    * 5. Only one contract per proposal
+   * 6. Payment must be initialized before contract is created
    */
-  async createFromProposal(proposalId, clientId, contractData) {
+  async createFromProposal(proposalId, clientId, contractData, paymentData = null) {
     try {
       console.log('🟢 [createFromProposal Service] Started');
       console.log('🟢 Proposal ID:', proposalId);
@@ -33,7 +36,7 @@ class ContractService {
       // Business Rule: Validate authentication
       if (!clientId) {
         console.log('🔴 Client ID is undefined!');
-        throw AppError('Not authenticated', 401);
+        throw createAppError('Not authenticated', 401);
       }
 
       // Business Rule: Validate proposal exists and populate related data
@@ -44,24 +47,24 @@ class ContractService {
 
       if (!proposal) {
         console.log('🔴 Proposal not found!');
-        throw AppError('Proposal not found', 404);
+        throw createAppError('Proposal not found', 404);
       }
       console.log('🟢 Proposal found:', proposal._id, 'Status:', proposal.status);
 
       // Business Rule: Validate related entities exist
       if (!proposal.jobId) {
         console.log('🔴 Job not populated or not found!');
-        throw AppError('Job associated with proposal not found', 404);
+        throw createAppError('Job associated with proposal not found', 404);
       }
       if (!proposal.freelancerId) {
         console.log('🔴 Freelancer not populated or not found!');
-        throw AppError('Freelancer associated with proposal not found', 404);
+        throw createAppError('Freelancer associated with proposal not found', 404);
       }
 
       // Business Rule: Only accepted proposals can be converted to contracts
       if (proposal.status !== 'accepted') {
         console.log('🔴 Proposal status is not accepted:', proposal.status);
-        throw AppError('Only accepted proposals can be converted to contracts', 400);
+        throw createAppError('Only accepted proposals can be converted to contracts', 400);
       }
       console.log('🟢 Proposal status is accepted');
 
@@ -70,7 +73,7 @@ class ContractService {
       const existingContract = await Contract.findOne({ proposal: proposalId });
       if (existingContract) {
         console.log('🔴 Contract already exists:', existingContract._id);
-        throw AppError('Contract already exists for this proposal', 400);
+        throw createAppError('Contract already exists for this proposal', 400);
       }
       console.log('🟢 No existing contract found');
 
@@ -81,7 +84,7 @@ class ContractService {
 
       if (!proposal.jobId.client) {
         console.log('🔴 Job client is undefined!');
-        throw AppError('Job client information is missing', 500);
+        throw createAppError('Job client information is missing', 500);
       }
 
       // Safely compare IDs
@@ -93,25 +96,65 @@ class ContractService {
 
       if (jobClientStr !== currentClientStr) {
         console.log('🔴 Client mismatch!');
-        throw AppError('Only the job client can create a contract', 403);
+        throw createAppError('Only the job client can create a contract', 403);
       }
       console.log('🟢 Client verification passed');
 
       // Business Rule: Client and freelancer must be different users
       if (currentClientStr === freelancerStr) {
         console.log('🔴 Client and freelancer are the same user!');
-        throw AppError('Client and freelancer must be different users', 400);
+        throw createAppError('Client and freelancer must be different users', 400);
       }
       console.log('🟢 Client and freelancer are different users');
-
-      // Create contract with validated data
-      console.log('🟢 Creating contract object...');
 
       const jobId = proposal.jobId._id || proposal.jobId;
       const freelancerId = proposal.freelancerId._id || proposal.freelancerId;
 
       console.log('🟢 Extracted IDs - Job:', jobId, 'Client:', jobClientStr, 'Freelancer:', freelancerId);
 
+      // Calculate total amount (use totalAmount or sum of milestones)
+      const totalAmount = contractData.totalAmount || 
+        (contractData.milestones && contractData.milestones.length > 0
+          ? contractData.milestones.reduce((sum, m) => sum + (m.amount || 0), 0)
+          : proposal.bidAmount);
+
+      console.log('🟢 Total amount calculated:', totalAmount);
+
+      // Validate payment data is provided
+      if (!paymentData || !paymentData.paymentMethod) {
+        throw createAppError('Payment method is required to create contract', 400);
+      }
+
+      // Create escrow for total contract amount BEFORE creating contract
+      console.log('🟢 Creating contract-level escrow...');
+      const escrow = await escrowService.createEscrow(
+        null, // contractId not yet created
+        'TOTAL', // special milestoneId for total contract escrow
+        totalAmount,
+        {
+          clientId: jobClientStr,
+          freelancerId: freelancerId,
+        }
+      );
+      console.log('🟢 Escrow created:', escrow._id);
+
+      // Initialize payment deposit with escrow linking
+      console.log('🟢 Initializing payment...');
+      const paymentResult = await paymentService.initializeDeposit(
+        clientId,
+        totalAmount,
+        paymentData.paymentMethod,
+        paymentData.customerData || {},
+        {
+          escrowId: escrow._id.toString(),
+          contractId: null, // Will be set after contract creation
+          isContractCreation: true,
+        }
+      );
+      console.log('🟢 Payment initialized:', paymentResult.transactionId);
+
+      // Create contract with escrow reference
+      console.log('🟢 Creating contract object...');
       const contract = new Contract({
         job: jobId,
         proposal: proposal._id,
@@ -119,7 +162,7 @@ class ContractService {
         freelancer: freelancerId,
         title: proposal.jobId.title || 'Untitled Contract',
         description: proposal.coverLetter || proposal.jobId.description || 'No description provided',
-        totalAmount: proposal.bidAmount,
+        totalAmount: totalAmount,
         paymentType: proposal.paymentType || PAYMENT_TYPE.FIXED,
         hourlyRate: proposal.hourlyRate,
         estimatedHours: proposal.estimatedHours,
@@ -127,11 +170,19 @@ class ContractService {
         deadline: contractData.deadline,
         milestones: contractData.milestones || [],
         status: CONTRACT_STATUS.PENDING, // Initial status is always pending
+        paymentStatus: 'PENDING', // Payment pending until verified
+        initialEscrowId: escrow._id,
+        paymentTransactionId: paymentResult.transactionId,
       });
       console.log('🟢 Contract object created, saving...');
 
       await contract.save();
       console.log('🟢 Contract saved successfully:', contract._id);
+
+      // Link escrow to contract after creation
+      escrow.contractId = contract._id;
+      await escrow.save();
+      console.log('🟢 Escrow linked to contract');
 
       // Create conversation for contract communication
       console.log('🟢 Creating conversation...');
@@ -158,7 +209,16 @@ class ContractService {
       ]);
       console.log('🟢 Contract populated successfully');
 
-      return populatedContract;
+      // Return contract with payment information
+      return {
+        contract: populatedContract,
+        paymentUrl: paymentResult.paymentUrl,
+        transactionId: paymentResult.transactionId,
+        requiresManualVerification: paymentResult.requiresManualVerification || false,
+        bankAccount: paymentResult.bankAccount,
+        referenceNumber: paymentResult.referenceNumber,
+        escrowId: escrow._id.toString(),
+      };
     } catch (error) {
       console.log('🔴 ERROR in createFromProposal:', error.message);
       console.log('🔴 ERROR stack:', error.stack);
@@ -178,7 +238,7 @@ class ContractService {
       .populate('proposal');
 
     if (!contract) {
-      throw AppError('Contract not found', 404);
+      throw createAppError('Contract not found', 404);
     }
 
     // [CONTRACT][AUTH] Debug authorization check
@@ -211,7 +271,7 @@ class ContractService {
     // Use canBeViewedBy for read operations, not canBeModifiedBy
     if (!contract.canBeViewedBy(userId)) {
       console.log('[CONTRACT][AUTH][ERROR] Access denied for userId:', userId);
-      throw AppError('You do not have access to this contract', 403);
+      throw createAppError('You do not have access to this contract', 403);
     }
 
     console.log('[CONTRACT][AUTH][SUCCESS] Access granted for userId:', userId);
@@ -315,40 +375,45 @@ class ContractService {
   async respondToContract(contractId, userId, action, reason) {
     // Validate required parameters
     if (!contractId) {
-      throw AppError('Contract ID is required', 400);
+      throw createAppError('Contract ID is required', 400);
     }
     if (!userId) {
-      throw AppError('User ID is required', 400);
+      throw createAppError('User ID is required', 400);
     }
     
     const contract = await Contract.findById(contractId);
 
     if (!contract) {
-      throw AppError('Contract not found', 404);
+      throw createAppError('Contract not found', 404);
     }
     
     // Validate contract has required fields
     if (!contract.freelancer) {
-      throw AppError('Contract freelancer data is missing', 500);
+      throw createAppError('Contract freelancer data is missing', 500);
     }
 
     // Business Rule: Contract must be in pending status
     if (contract.status !== CONTRACT_STATUS.PENDING) {
-      throw AppError('Contract is not in pending status', 400);
+      throw createAppError('Contract is not in pending status', 400);
     }
 
     // Business Rule: Authorization - only freelancer can respond
     if (!contract.isFreelancer(userId)) {
-      throw AppError('Only the freelancer can respond to the contract', 403);
+      throw createAppError('Only the freelancer can respond to the contract', 403);
     }
 
     // Handle accept/decline actions with proper status transitions
     if (action === 'accept') {
+      // Business Rule: Payment must be completed before freelancer can accept
+      if (contract.paymentStatus && contract.paymentStatus !== 'COMPLETED') {
+        throw createAppError('Contract payment must be completed before acceptance', 400);
+      }
+      
       const newStatus = CONTRACT_STATUS.ACTIVE;
       
       // Validate status transition
       if (!contract.canTransitionTo(newStatus)) {
-        throw AppError('Invalid status transition', 400);
+        throw createAppError('Invalid status transition', 400);
       }
       
       contract.status = newStatus;
@@ -358,7 +423,7 @@ class ContractService {
       
       // Validate status transition
       if (!contract.canTransitionTo(newStatus)) {
-        throw AppError('Invalid status transition', 400);
+        throw createAppError('Invalid status transition', 400);
       }
       
       contract.status = newStatus;
@@ -366,7 +431,7 @@ class ContractService {
       contract.cancelledBy = userId;
       contract.cancellationReason = reason || 'Declined by freelancer';
     } else {
-      throw AppError('Invalid action. Must be "accept" or "decline"', 400);
+      throw createAppError('Invalid action. Must be "accept" or "decline"', 400);
     }
 
     await contract.save();
@@ -395,22 +460,22 @@ class ContractService {
     const contract = await Contract.findById(contractId);
 
     if (!contract) {
-      throw AppError('Contract not found', 404);
+      throw createAppError('Contract not found', 404);
     }
 
     // Business Rule: Authorization - only contract parties can modify
     if (!contract.canBeModifiedBy(userId)) {
-      throw AppError('You do not have access to this contract', 403);
+      throw createAppError('You do not have access to this contract', 403);
     }
 
     // Business Rule: Authorization - only client can add milestones
     if (!contract.isClient(userId)) {
-      throw AppError('Only the client can add milestones', 403);
+      throw createAppError('Only the client can add milestones', 403);
     }
 
     // Business Rule: Milestones can only be added to pending or active contracts
     if (!contract.canAddMilestone()) {
-      throw AppError(
+      throw createAppError(
         `Cannot add milestone. Contract must be in ${MILESTONE_EDITABLE_STATUSES.join(' or ')} status`,
         400
       );
@@ -422,22 +487,36 @@ class ContractService {
       
       // Ensure dueDate is not in the past
       if (dueDate < new Date()) {
-        throw AppError('Milestone due date cannot be in the past', 400);
+        throw createAppError('Milestone due date cannot be in the past', 400);
       }
       
       // If contract has a deadline, milestone due date should not exceed it
       if (contract.deadline && dueDate > new Date(contract.deadline)) {
-        throw AppError('Milestone due date cannot exceed contract deadline', 400);
+        throw createAppError('Milestone due date cannot exceed contract deadline', 400);
       }
     }
 
     // Add milestone with default status
-    contract.milestones.push({
+    const newMilestone = {
       ...milestoneData,
       status: MILESTONE_STATUS.PENDING,
-    });
+    };
+    contract.milestones.push(newMilestone);
     
     await contract.save();
+
+    // Create escrow for the milestone
+    const addedMilestone = contract.milestones[contract.milestones.length - 1];
+    try {
+      await escrowService.createEscrow(
+        contractId,
+        addedMilestone._id.toString(),
+        milestoneData.amount
+      );
+    } catch (error) {
+      // Log error but don't fail milestone creation
+      console.error('Failed to create escrow for milestone:', error.message);
+    }
 
     return contract;
   }
@@ -453,17 +532,17 @@ class ContractService {
     const contract = await Contract.findById(contractId);
 
     if (!contract) {
-      throw AppError('Contract not found', 404);
+      throw createAppError('Contract not found', 404);
     }
 
     // Business Rule: Authorization - only contract parties can modify
     if (!contract.canBeModifiedBy(userId)) {
-      throw AppError('You do not have access to this contract', 403);
+      throw createAppError('You do not have access to this contract', 403);
     }
 
     // Business Rule: Cannot modify milestones in terminal states
     if (TERMINAL_STATUSES.includes(contract.status)) {
-      throw AppError(
+      throw createAppError(
         `Cannot update milestone. Contract is in ${contract.status} status`,
         400
       );
@@ -471,7 +550,7 @@ class ContractService {
 
     const milestone = contract.milestones.id(milestoneId);
     if (!milestone) {
-      throw AppError('Milestone not found', 404);
+      throw createAppError('Milestone not found', 404);
     }
 
     // Business Rule: Validate dueDate if being updated
@@ -480,12 +559,12 @@ class ContractService {
       
       // Ensure dueDate is not in the past
       if (newDueDate < new Date()) {
-        throw AppError('Milestone due date cannot be in the past', 400);
+        throw createAppError('Milestone due date cannot be in the past', 400);
       }
       
       // If contract has a deadline, milestone due date should not exceed it
       if (contract.deadline && newDueDate > new Date(contract.deadline)) {
-        throw AppError('Milestone due date cannot exceed contract deadline', 400);
+        throw createAppError('Milestone due date cannot exceed contract deadline', 400);
       }
     }
 
@@ -517,29 +596,29 @@ class ContractService {
     const contract = await Contract.findById(contractId);
 
     if (!contract) {
-      throw AppError('Contract not found', 404);
+      throw createAppError('Contract not found', 404);
     }
 
     // Business Rule: Authorization - only contract parties can access
     if (!contract.canBeModifiedBy(userId)) {
-      throw AppError('You do not have access to this contract', 403);
+      throw createAppError('You do not have access to this contract', 403);
     }
 
     // Business Rule: Authorization - only client can complete contract
     if (!contract.isClient(userId)) {
-      throw AppError('Only the client can complete the contract', 403);
+      throw createAppError('Only the client can complete the contract', 403);
     }
 
     // Business Rule: Contract must be active to complete
     if (contract.status !== CONTRACT_STATUS.ACTIVE) {
-      throw AppError('Only active contracts can be completed', 400);
+      throw createAppError('Only active contracts can be completed', 400);
     }
 
     const newStatus = CONTRACT_STATUS.COMPLETED;
     
     // Business Rule: Validate status transition
     if (!contract.canTransitionTo(newStatus)) {
-      throw AppError('Invalid status transition', 400);
+      throw createAppError('Invalid status transition', 400);
     }
 
     contract.status = newStatus;
@@ -569,29 +648,29 @@ class ContractService {
     const contract = await Contract.findById(contractId);
 
     if (!contract) {
-      throw AppError('Contract not found', 404);
+      throw createAppError('Contract not found', 404);
     }
 
     // Business Rule: Authorization - only contract parties can access
     if (!contract.canBeModifiedBy(userId)) {
-      throw AppError('You do not have access to this contract', 403);
+      throw createAppError('You do not have access to this contract', 403);
     }
 
     // Business Rule: Authorization - only client can cancel (freelancer declines via respondToContract)
     if (!contract.isClient(userId)) {
-      throw AppError('Only the client can cancel the contract', 403);
+      throw createAppError('Only the client can cancel the contract', 403);
     }
 
     // Business Rule: Cancellation reason is required
     if (!reason || reason.trim().length === 0) {
-      throw AppError('Cancellation reason is required', 400);
+      throw createAppError('Cancellation reason is required', 400);
     }
 
     const newStatus = CONTRACT_STATUS.CANCELLED;
     
     // Business Rule: Validate status transition
     if (!contract.canTransitionTo(newStatus)) {
-      throw AppError(
+      throw createAppError(
         `Cannot cancel contract in ${contract.status} status`,
         400
       );
@@ -646,6 +725,108 @@ class ContractService {
     });
 
     return stats;
+  }
+
+  /**
+   * Fund milestone escrow
+   * Business Rules:
+   * 1. Only client can fund escrow
+   * 2. Contract must be active or pending
+   * 3. Milestone must exist
+   * 4. Escrow must be in CREATED status
+   */
+  async fundMilestoneEscrow(contractId, milestoneId, userId, paymentData) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // Verify user is client
+    if (!contract.isClient(userId)) {
+      throw createAppError('Only the client can fund milestone escrow', 403);
+    }
+
+    // Verify contract status
+    if (!contract.canAddMilestone()) {
+      throw createAppError('Cannot fund escrow for contract in this status', 400);
+    }
+
+    // Verify milestone exists
+    const milestone = contract.milestones.id(milestoneId);
+    if (!milestone) {
+      throw createAppError('Milestone not found', 404);
+    }
+
+    // Get or create escrow
+    let escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
+    if (!escrow) {
+      // Create escrow if it doesn't exist
+      escrow = await escrowService.createEscrow(contractId, milestoneId, milestone.amount);
+    }
+
+    // Initialize payment with escrow and contract linking
+    const paymentResult = await paymentService.initializeDeposit(
+      userId,
+      milestone.amount,
+      paymentData.paymentMethod,
+      paymentData.customerData,
+      {
+        escrowId: escrow._id.toString(),
+        contractId: contractId,
+      }
+    );
+
+    // Fund escrow after payment is verified (this will be called from payment callback)
+    // For now, return payment URL
+    return {
+      escrowId: escrow._id.toString(),
+      paymentUrl: paymentResult.paymentUrl,
+      transactionId: paymentResult.transactionId,
+      requiresManualVerification: paymentResult.requiresManualVerification,
+      bankAccount: paymentResult.bankAccount,
+      referenceNumber: paymentResult.referenceNumber,
+    };
+  }
+
+  /**
+   * Approve milestone and release escrow
+   * Business Rules:
+   * 1. Only client can approve milestone
+   * 2. Milestone must be completed
+   * 3. Escrow must be funded/locked
+   */
+  async approveMilestone(contractId, milestoneId, userId) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // Verify user is client
+    if (!contract.isClient(userId)) {
+      throw createAppError('Only the client can approve milestone', 403);
+    }
+
+    // Verify milestone exists
+    const milestone = contract.milestones.id(milestoneId);
+    if (!milestone) {
+      throw createAppError('Milestone not found', 404);
+    }
+
+    // Verify milestone is completed
+    if (milestone.status !== MILESTONE_STATUS.COMPLETED) {
+      throw createAppError('Milestone must be completed before approval', 400);
+    }
+
+    // Get escrow
+    const escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
+    if (!escrow) {
+      throw createAppError('Escrow not found for this milestone', 404);
+    }
+
+    // Release escrow
+    await escrowService.releaseEscrow(escrow._id.toString(), userId);
+
+    return contract;
   }
 }
 

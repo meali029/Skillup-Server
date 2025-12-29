@@ -46,6 +46,21 @@ export const createFromProposal = {
         })
       )
       .optional(),
+    paymentData: Joi.object({
+      paymentMethod: Joi.string().required().valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+        .messages({
+          'any.required': 'Payment method is required',
+          'any.only': 'Payment method must be JAZZCASH, EASYPAISA, or BANK_TRANSFER',
+        }),
+      customerData: Joi.object({
+        email: Joi.string().optional().email(),
+        name: Joi.string().optional().trim(),
+        phone: Joi.string().optional().trim(),
+      }).optional(),
+    }).required()
+      .messages({
+        'any.required': 'Payment data is required',
+      }),
   }),
 };
 
@@ -242,4 +257,51 @@ export const respondToContract = {
         'string.max': 'Reason cannot exceed 500 characters',
       }),
   }),
+};
+
+// Fund milestone escrow
+export const fundMilestoneEscrow = {
+  params: Joi.object({
+    id: Joi.string().required().hex().length(24)
+      .messages({
+        'string.hex': 'Invalid contract ID format',
+        'string.length': 'Invalid contract ID length',
+      }),
+    milestoneId: Joi.string().required().hex().length(24)
+      .messages({
+        'string.hex': 'Invalid milestone ID format',
+        'string.length': 'Invalid milestone ID length',
+      }),
+  }),
+  body: Joi.object({
+    paymentMethod: Joi.string()
+      .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+      .required()
+      .messages({
+        'any.only': 'Invalid payment method',
+        'any.required': 'Payment method is required',
+      }),
+    customerData: Joi.object({
+      email: Joi.string().email().optional(),
+      name: Joi.string().optional(),
+      phone: Joi.string().optional(),
+    }).optional(),
+  }),
+};
+
+// Approve milestone
+export const approveMilestone = {
+  params: Joi.object({
+    id: Joi.string().required().hex().length(24)
+      .messages({
+        'string.hex': 'Invalid contract ID format',
+        'string.length': 'Invalid contract ID length',
+      }),
+    milestoneId: Joi.string().required().hex().length(24)
+      .messages({
+        'string.hex': 'Invalid milestone ID format',
+        'string.length': 'Invalid milestone ID length',
+      }),
+  }),
+  body: Joi.object({}).optional(),
 };

@@ -23,7 +23,7 @@ import {
   validateProposalQuery,
   validateRejectProposal,
 } from "./proposal.validation.js";
-import { authenticate, authorize } from "../../core/middlewares/index.js";
+import { authenticate, authorize, aiRateLimit } from "../../core/middlewares/index.js";
 
 const router = express.Router();
 
@@ -39,8 +39,8 @@ router.put("/:id", authorize("freelancer"), validateProposalId, validateUpdatePr
 router.delete("/:id", authorize("freelancer"), validateProposalId, withdrawProposal);
 
 // AI Proposal Generation routes (accessible by freelancers and admins for testing)
-router.get("/draft/:jobId", authorize("freelancer", "admin"), validateJobId, generateProposalDraft);
-router.post("/draft/:jobId/regenerate", authorize("freelancer", "admin"), validateJobId, regenerateProposalDraft);
+router.get("/draft/:jobId", authorize("freelancer", "admin"), validateJobId, aiRateLimit("proposal", { skipAdmin: true }), generateProposalDraft);
+router.post("/draft/:jobId/regenerate", authorize("freelancer", "admin"), validateJobId, aiRateLimit("proposal", { skipAdmin: true }), regenerateProposalDraft);
 
 // Client routes
 router.get("/client/all", authorize("client"), validateProposalQuery, getAllClientProposals);
