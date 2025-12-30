@@ -149,3 +149,48 @@ export const getUnreadCount = asyncHandler(async (req, res) => {
 
   successResponse(res, { count }, 'Unread count retrieved successfully');
 });
+
+export const pinConversation = asyncHandler(async (req, res) => {
+  const conversation = await messageService.pinConversation(
+    req.params.id,
+    req.user.id
+  );
+
+  successResponse(res, { conversation }, 'Conversation pinned successfully');
+});
+
+export const unpinConversation = asyncHandler(async (req, res) => {
+  const conversation = await messageService.unpinConversation(
+    req.params.id,
+    req.user.id
+  );
+
+  successResponse(res, { conversation }, 'Conversation unpinned successfully');
+});
+
+export const muteConversation = asyncHandler(async (req, res) => {
+  const conversation = await messageService.muteConversation(
+    req.params.id,
+    req.user.id
+  );
+
+  successResponse(res, { conversation }, 'Conversation muted successfully');
+});
+
+export const unmuteConversation = asyncHandler(async (req, res) => {
+  const conversation = await messageService.unmuteConversation(
+    req.params.id,
+    req.user.id
+  );
+
+  successResponse(res, { conversation }, 'Conversation unmuted successfully');
+});
+
+export const deleteConversation = asyncHandler(async (req, res) => {
+  const conversation = await messageService.deleteConversation(
+    req.params.id,
+    req.user.id
+  );
+
+  successResponse(res, { conversation }, 'Conversation deleted successfully');
+});

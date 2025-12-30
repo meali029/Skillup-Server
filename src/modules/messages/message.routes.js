@@ -44,6 +44,36 @@ router.post(
   messageController.unarchiveConversation
 );
 
+router.post(
+  '/conversations/:id/pin',
+  validate(messageValidation.archiveConversation),
+  messageController.pinConversation
+);
+
+router.post(
+  '/conversations/:id/unpin',
+  validate(messageValidation.archiveConversation),
+  messageController.unpinConversation
+);
+
+router.post(
+  '/conversations/:id/mute',
+  validate(messageValidation.archiveConversation),
+  messageController.muteConversation
+);
+
+router.post(
+  '/conversations/:id/unmute',
+  validate(messageValidation.archiveConversation),
+  messageController.unmuteConversation
+);
+
+router.delete(
+  '/conversations/:id',
+  validate(messageValidation.archiveConversation),
+  messageController.deleteConversation
+);
+
 // Message routes
 router.post(
   '/conversations/:conversationId/messages',

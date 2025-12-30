@@ -6,10 +6,10 @@ class ExportService {
   /**
    * Generate PDF report
    */
-  async generatePDF(analytics) {
+  async generatePDF(analytics, PDFDocCtor = PDFDocument) {
     return new Promise((resolve, reject) => {
       try {
-        const doc = new PDFDocument({ margin: 50 });
+        const doc = new PDFDocCtor({ margin: 50 });
         const chunks = [];
 
         doc.on('data', chunk => chunks.push(chunk));
@@ -97,8 +97,8 @@ class ExportService {
   /**
    * Generate Excel report
    */
-  async generateExcel(analytics) {
-    const workbook = new ExcelJS.Workbook();
+  async generateExcel(analytics, WorkbookCtor = ExcelJS.Workbook) {
+    const workbook = new WorkbookCtor();
     workbook.creator = 'SkillUp Platform';
     workbook.created = new Date();
 

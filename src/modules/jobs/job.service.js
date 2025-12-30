@@ -1,7 +1,10 @@
 import Job from '../../models/Job.js';
 import User from '../../models/User.js';
+import Proposal from '../../models/Proposal.js';
 import { AppError } from '../../core/errors/index.js';
 import matchingService from '../../services/matching/matching.service.js';
+import aiService from '../../services/ai/ai.service.js';
+import freelancerHistoryService from '../../services/freelancer-history.service.js';
 
 export const createJob = async (jobData, clientId) => {
   const job = new Job({
@@ -343,10 +346,10 @@ export const getRecommendedJobs = async (userId) => {
 };
 
 /**
- * Get recommended freelancers for a job
+ * Get recommended freelancers for a job (based on proposals)
  * @param {string} jobId - Job ID
  * @param {Object} options - Query options
- * @returns {Promise<Array>} Ranked freelancers
+ * @returns {Promise<Array>} Ranked freelancers with proposal data
  */
 export const getRecommendedFreelancers = async (jobId, options = {}) => {
   const { limit = 10, minScore = 0 } = options;
@@ -362,39 +365,150 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
     throw AppError('Job is not open for proposals', 400);
   }
 
-  // Build query for freelancers
-  const query = {
-    role: 'freelancer',
-    isActive: true,
-    isBanned: { $ne: true },
-  };
+  // Get all pending proposals for this job
+  const proposals = await Proposal.find({
+    jobId: jobId,
+    status: 'pending',
+  })
+    .populate('freelancerId', '-password -resetPasswordOTP -resetPasswordOTPExpires -cnic')
+    .sort({ createdAt: -1 })
+    .lean();
 
-  // Filter by skills if job has required skills
-  if (job.skills && job.skills.length > 0) {
-    query.skills = { $in: job.skills };
-  }
+  console.log(`[Recommendations] Found ${proposals.length} pending proposals for job ${jobId}`);
 
-  // Get more freelancers than needed for better ranking
-  const freelancers = await User.find(query)
-    .select('-password -resetPasswordOTP -resetPasswordOTPExpires -cnic')
-    .limit(50); // Get more for better AI ranking
-
-  console.log(`[Recommendations] Found ${freelancers.length} freelancers for job ${jobId}`);
-
-  if (freelancers.length === 0) {
-    console.log('[Recommendations] No freelancers found matching criteria');
+  if (proposals.length === 0) {
+    console.log('[Recommendations] No proposals found for this job');
     return [];
   }
 
-  // Use matching service to rank freelancers
-  const rankedFreelancers = await matchingService.rankFreelancers(freelancers, job, true);
-  
-  console.log(`[Recommendations] Ranked ${rankedFreelancers.length} freelancers, scores: ${rankedFreelancers.slice(0, 5).map(f => f.matchScore).join(', ')}`);
+  // Filter out inactive or banned freelancers
+  const validProposals = proposals.filter(proposal => {
+    const freelancer = proposal.freelancerId;
+    return freelancer && 
+           freelancer.isActive !== false && 
+           freelancer.isBanned !== true &&
+           freelancer.role === 'freelancer';
+  });
 
-  // Filter by minimum match score
-  const filteredFreelancers = matchingService.filterFreelancersByMatchScore(rankedFreelancers, minScore);
-  
-  console.log(`[Recommendations] After filtering (minScore=${minScore}): ${filteredFreelancers.length} freelancers`);
+  console.log(`[Recommendations] ${validProposals.length} valid proposals after filtering`);
 
-  return filteredFreelancers.slice(0, limit);
+  if (validProposals.length === 0) {
+    return [];
+  }
+
+  // Get unique freelancer IDs (in case of multiple proposals from same freelancer)
+  const freelancerIds = [...new Set(validProposals.map(p => p.freelancerId._id?.toString() || p.freelancerId.toString()))];
+
+  // Get contract history for all freelancers in batch
+  const contractHistoryMap = await freelancerHistoryService.getBatchContractHistory(freelancerIds);
+
+  // Combine proposal, freelancer, and contract history data
+  const proposalsWithData = validProposals.map(proposal => {
+    const freelancerId = proposal.freelancerId._id?.toString() || proposal.freelancerId.toString();
+    const contractHistory = contractHistoryMap.get(freelancerId) || freelancerHistoryService.getEmptyStats();
+    
+    return {
+      proposal: {
+        _id: proposal._id,
+        id: proposal._id,
+        coverLetter: proposal.coverLetter,
+        bidAmount: proposal.bidAmount,
+        deliveryTime: proposal.deliveryTime,
+        createdAt: proposal.createdAt,
+      },
+      freelancer: proposal.freelancerId,
+      contractHistory,
+    };
+  });
+
+  try {
+    // Use AI to rank proposals based on proposal quality, profile, and contract history
+    const aiRankings = await aiService.rankProposalsWithAI(job, proposalsWithData);
+    
+    console.log(`[Recommendations] AI ranked ${aiRankings.length} proposals`);
+
+    // Transform to expected format with proposal data included
+    const rankedFreelancers = aiRankings.map((ranking) => {
+      const freelancer = ranking.freelancer;
+      const proposal = ranking.proposal;
+      const contractHistory = ranking.contractHistory;
+      
+      return {
+        ...(freelancer.toObject ? freelancer.toObject() : { ...freelancer }),
+        // Proposal data
+        proposalId: proposal._id || proposal.id,
+        proposalBidAmount: proposal.bidAmount,
+        proposalDeliveryTime: proposal.deliveryTime,
+        proposalCoverLetter: proposal.coverLetter,
+        proposalCreatedAt: proposal.createdAt,
+        // Contract history
+        contractHistory: {
+          totalContracts: contractHistory.totalContracts,
+          completedContracts: contractHistory.completedContracts,
+          successRate: contractHistory.successRate,
+          onTimeDeliveryRate: contractHistory.onTimeDeliveryRate,
+          disputeRate: contractHistory.disputeRate,
+          totalEarned: contractHistory.totalEarned,
+          hasHistory: contractHistory.hasHistory,
+        },
+        // AI ranking data
+        matchScore: ranking.aiScore,
+        aiScore: ranking.aiScore,
+        matchConfidence: ranking.confidence || 0,
+        matchReasoning: ranking.reasoning || 'AI recommendation based on proposal, profile, and contract history',
+        aiEnhanced: true,
+        strengths: ranking.strengths || [],
+        concerns: ranking.concerns || [],
+        proposalQuality: ranking.proposalQuality || {},
+        profileMatch: ranking.profileMatch || {},
+        trackRecord: ranking.trackRecord || {},
+      };
+    });
+
+    // Filter by minimum match score
+    const filteredFreelancers = rankedFreelancers.filter(f => {
+      const score = f.matchScore || f.aiScore || 0;
+      return score >= minScore;
+    });
+    
+    console.log(`[Recommendations] After filtering (minScore=${minScore}): ${filteredFreelancers.length} freelancers`);
+
+    return filteredFreelancers.slice(0, limit);
+  } catch (error) {
+    console.error('[Recommendations] AI recommendation failed:', error);
+    
+    // Fallback: Return proposals sorted by creation date (newest first)
+    // Include basic proposal data even without AI ranking
+    const fallbackResults = proposalsWithData.map(({ proposal, freelancer, contractHistory }) => ({
+      ...(freelancer.toObject ? freelancer.toObject() : { ...freelancer }),
+      proposalId: proposal._id || proposal.id,
+      proposalBidAmount: proposal.bidAmount,
+      proposalDeliveryTime: proposal.deliveryTime,
+      proposalCoverLetter: proposal.coverLetter,
+      proposalCreatedAt: proposal.createdAt,
+      contractHistory: {
+        totalContracts: contractHistory.totalContracts,
+        completedContracts: contractHistory.completedContracts,
+        successRate: contractHistory.successRate,
+        hasHistory: contractHistory.hasHistory,
+      },
+      matchScore: 50, // Default score
+      aiScore: 0,
+      matchConfidence: 0,
+      matchReasoning: 'AI ranking unavailable, showing proposals in order received',
+      aiEnhanced: false,
+      strengths: [],
+      concerns: [],
+    }));
+
+    // Sort by proposal creation date (newest first)
+    fallbackResults.sort((a, b) => {
+      const dateA = new Date(a.proposalCreatedAt || 0);
+      const dateB = new Date(b.proposalCreatedAt || 0);
+      return dateB - dateA;
+    });
+
+    const filtered = fallbackResults.filter(f => f.matchScore >= minScore);
+    return filtered.slice(0, limit);
+  }
 };

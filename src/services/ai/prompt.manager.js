@@ -7,6 +7,7 @@ import jobRecommendationPrompt from './prompts/job-recommendation.prompt.js';
 import freelancerRecommendationPrompt from './prompts/freelancer-recommendation.prompt.js';
 import proposalPrompts from './prompts/proposal-generation.prompt.js';
 import matchEnhancementPrompt from './prompts/match-enhancement.prompt.js';
+import proposalRankingPrompt from './prompts/proposal-ranking.prompt.js';
 
 /**
  * Prompt Manager Class
@@ -19,6 +20,7 @@ class PromptManager {
       freelancerRecommendation: freelancerRecommendationPrompt,
       proposalGeneration: proposalPrompts,
       matchEnhancement: matchEnhancementPrompt,
+      proposalRanking: proposalRankingPrompt,
     };
   }
 
@@ -277,6 +279,57 @@ class PromptManager {
   }
 
   /**
+   * Generate proposal ranking prompt
+   * @param {Object} job - Sanitized job object
+   * @param {Array<Object>} proposalsWithData - Array of { proposal, freelancer, contractHistory }
+   * @returns {string} Rendered prompt
+   */
+  generateProposalRankingPrompt(job, proposalsWithData) {
+    const template = this.getPrompt('proposalRanking');
+    
+    // Format budget
+    const budgetStr = this.formatBudget(job);
+    
+    // Format freelancer data
+    const freelancerDataArray = proposalsWithData.map(({ proposal, freelancer, contractHistory }) => {
+      const history = contractHistory || {};
+      return `
+### Freelancer: ${freelancer.name || 'Unknown'}
+- **Proposal ID**: ${proposal._id || proposal.id}
+- **Cover Letter**: ${(proposal.coverLetter || '').substring(0, 500)}${proposal.coverLetter && proposal.coverLetter.length > 500 ? '...' : ''}
+- **Bid Amount**: PKR ${(proposal.bidAmount || 0).toLocaleString()}
+- **Delivery Time**: ${proposal.deliveryTime || 'N/A'} days
+- **Skills**: ${(freelancer.skills || []).join(', ') || 'None'}
+- **Experience Level**: ${freelancer.experience || 'Not specified'}
+- **Hourly Rate**: PKR ${(freelancer.hourlyRate || 0).toLocaleString()}/hr
+- **Bio**: ${(freelancer.bio || '').substring(0, 200)}${freelancer.bio && freelancer.bio.length > 200 ? '...' : ''}
+- **Portfolio Items**: ${(freelancer.portfolio || []).length || 0}
+- **Contract History**:
+  - Total Contracts: ${history.totalContracts || 0}
+  - Completed: ${history.completedContracts || 0}
+  - Success Rate: ${history.successRate || 0}%
+  - On-Time Delivery Rate: ${history.onTimeDeliveryRate || 0}%
+  - Dispute Rate: ${history.disputeRate || 0}%
+  - Total Earned: PKR ${(history.totalEarned || 0).toLocaleString()}
+  - Average Contract Value: PKR ${(history.averageContractValue || 0).toLocaleString()}
+  - Has History: ${history.hasHistory ? 'Yes' : 'No (New Freelancer)'}
+`;
+    }).join('\n---\n');
+    
+    const variables = {
+      jobTitle: job.title || '',
+      jobDescription: (job.description || '').substring(0, 1000),
+      jobSkills: (job.skills || []).join(', ') || 'Not specified',
+      jobBudget: budgetStr,
+      jobExperienceLevel: job.experienceLevel || 'Not specified',
+      jobLocation: job.location || 'Not specified',
+      freelancerData: freelancerDataArray,
+    };
+
+    return this.renderPrompt(template, variables);
+  }
+
+  /**
    * Format budget for prompt
    * @param {Object} job - Job object
    * @returns {string} Formatted budget string
@@ -284,6 +337,8 @@ class PromptManager {
   formatBudget(job) {
     if (job.budgetType === 'fixed' && job.budgetAmount) {
       return `PKR ${job.budgetAmount.toLocaleString()} (Fixed)`;
+    } else if (job.budgetMin && job.budgetMax) {
+      return `PKR ${job.budgetMin.toLocaleString()} - ${job.budgetMax.toLocaleString()}`;
     } else if (job.budgetType === 'hourly' && job.hourlyRate) {
       const min = job.hourlyRate.min || 0;
       const max = job.hourlyRate.max || 0;
@@ -295,6 +350,7 @@ class PromptManager {
 
 // Export singleton instance
 export default new PromptManager();
+
 
 
 

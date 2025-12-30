@@ -1,12 +1,10 @@
 import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { join } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const baseDir = process.cwd();
 
 // Load environment variables
-dotenv.config({ path: join(__dirname, '../../.env') });
+dotenv.config({ path: join(baseDir, '.env') });
 
 /**
  * AI Configuration
@@ -78,6 +76,7 @@ export const isAIEnabled = () => {
 };
 
 export default aiConfig;
+
 
 
 

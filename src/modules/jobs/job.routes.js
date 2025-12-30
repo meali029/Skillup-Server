@@ -16,7 +16,7 @@ import {
   validateUpdateJob,
   validateJobQuery,
 } from './job.validation.js';
-import { authenticate, authorize } from '../../core/middlewares/index.js';
+import { authenticate, authorize, aiRateLimit } from '../../core/middlewares/index.js';
 
 const router = express.Router();
 
@@ -34,10 +34,10 @@ router.patch('/:id/close', authorize('client'), closeJob);
 router.get('/:id', getJobById);
 
 // Recommended jobs for freelancers
-router.get('/freelancer/recommended', authorize('freelancer'), getRecommendedJobs);
+router.get('/freelancer/recommended', authorize('freelancer'), aiRateLimit('recommendation', { skipAdmin: true }), getRecommendedJobs);
 
 // Recommended freelancers for a job (client only)
-router.get('/:id/recommended-freelancers', authorize('client'), getRecommendedFreelancers);
+router.get('/:id/recommended-freelancers', authorize('client'), aiRateLimit('recommendation', { skipAdmin: true }), getRecommendedFreelancers);
 
 export default router;
 

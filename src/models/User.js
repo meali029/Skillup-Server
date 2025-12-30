@@ -112,6 +112,14 @@ const userSchema = new mongoose.Schema({
   // Password reset OTP fields
   resetPasswordOTP: { type: String, select: false },
   resetPasswordOTPExpires: { type: Date, select: false },
+  // Flag indicating the OTP was verified (allows reset without re-supplying OTP)
+  resetPasswordOTPVerified: { type: Boolean, default: false, select: false },
+  
+  // Wallet reference
+  walletId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Wallet',
+  },
   
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

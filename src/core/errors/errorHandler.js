@@ -29,6 +29,18 @@ const errorHandler = (err, req, res, next) => {
     error = createAppError('Your token has expired. Please log in again', 401);
   }
 
+  // Handle validation errors from Joi (AppError with errors array)
+  if (err.isOperational && err.errors && Array.isArray(err.errors)) {
+    const validationMessages = err.errors.map(e => e.message || `${e.field}: ${e.message}`).join(', ');
+    return res.status(error.statusCode || 400).json({
+      success: false,
+      status: 'fail',
+      message: validationMessages || error.message || 'Validation failed',
+      errors: err.errors,
+      ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    });
+  }
+
   res.status(error.statusCode || 500).json({
     success: false,
     status: error.status || 'error',

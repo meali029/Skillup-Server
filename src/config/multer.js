@@ -1,14 +1,9 @@
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import fs from 'fs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../../uploads/cnic');
+// Use process.cwd() instead of import.meta to be test-friendly
+const uploadsDir = path.join(process.cwd(), 'uploads', 'cnic');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -44,3 +39,6 @@ export const uploadCNIC = multer({
     fileSize: 5 * 1024 * 1024, // 5MB max file size
   },
 });
+
+// Export fileFilter (for unit testing and reuse)
+export { fileFilter };

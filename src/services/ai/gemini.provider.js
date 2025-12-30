@@ -100,11 +100,29 @@ class GeminiProvider extends AIProviderInterface {
    * Create timeout promise
    */
   createTimeoutPromise(timeout) {
-    return new Promise((_, reject) => {
-      setTimeout(() => {
+    // Debug: in test env, log stack so we can identify callers creating timeouts
+    if (process.env.NODE_ENV === 'test') {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[Gemini] createTimeoutPromise called with timeout', timeout, new Error().stack.split('\n').slice(2,6).join('\n'));
+      } catch (e) {}
+    }
+
+    let timeoutId;
+    const p = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
         reject(AITimeoutError(timeout));
       }, timeout);
     });
+
+    // Attach cancel method so callers can clear the timeout when it is no longer needed
+    p.cancel = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    return p;
   }
 
   /**
@@ -124,8 +142,8 @@ class GeminiProvider extends AIProviderInterface {
     try {
       this.requestCount++;
 
-      // Create timeout promise
-      const timeoutPromise = this.createTimeoutPromise(timeout);
+        // Create timeout promise (we keep a reference so we can swallow its rejection later to avoid unhandled rejections)
+      let timeoutPromise = this.createTimeoutPromise(timeout);
 
       // Create generation promise
       const generationPromise = this.model.generateContent({
@@ -138,6 +156,19 @@ class GeminiProvider extends AIProviderInterface {
 
       // Race between generation and timeout
       const result = await Promise.race([generationPromise, timeoutPromise]);
+
+      // If generation won the race, cancel the timeout and swallow its rejection to avoid unhandled rejections
+      try {
+        if (timeoutPromise && typeof timeoutPromise.cancel === 'function') {
+          timeoutPromise.cancel();
+        }
+        if (timeoutPromise && typeof timeoutPromise.catch === 'function') {
+          timeoutPromise.catch(() => {});
+        }
+      } catch (e) {
+        // ignore
+      }
+
       const response = await result.response;
       const text = response.text();
 
@@ -150,6 +181,19 @@ class GeminiProvider extends AIProviderInterface {
         confidence: 85, // Gemini doesn't provide confidence, use default
       };
     } catch (error) {
+      // If an error occurred synchronously or from generation, cancel the pending timeout
+      // and swallow its rejection so no timer will trigger later.
+      try {
+        if (timeoutPromise && typeof timeoutPromise.cancel === 'function') {
+          timeoutPromise.cancel();
+        }
+        if (timeoutPromise && typeof timeoutPromise.catch === 'function') {
+          timeoutPromise.catch(() => {});
+        }
+      } catch (e) {
+        // ignore
+      }
+
       // Handle specific errors
       if (error.statusCode === 429) {
         throw AIRateLimitError();
@@ -256,6 +300,7 @@ Provide a JSON response with this structure:
 
 // Export singleton instance
 export default new GeminiProvider();
+
 
 
 
