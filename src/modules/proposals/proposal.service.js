@@ -7,6 +7,99 @@ import { AppError, createAppError } from "../../core/errors/index.js";
 import { notifyUser } from "../notifications/notification.service.js";
 import aiService from "../../services/ai/ai.service.js";
 
+// Weekly Proposal Limit Constants
+const WEEKLY_PROPOSAL_LIMIT = 20;
+const LIMIT_WINDOW_DAYS = 7;
+
+/**
+ * Get the count of proposals submitted by a freelancer in the last 7 days
+ * Excludes withdrawn proposals (they don't count toward the limit)
+ * 
+ * @param {string} freelancerId - The freelancer's user ID
+ * @returns {Promise<{count: number, oldestProposal: Date|null}>}
+ */
+const getWeeklyProposalCount = async (freelancerId) => {
+  const windowStart = new Date(Date.now() - LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  
+  // Count non-withdrawn proposals in the window
+  const count = await Proposal.countDocuments({
+    freelancerId,
+    createdAt: { $gte: windowStart },
+    status: { $ne: 'withdrawn' },
+  });
+  
+  // Find the oldest proposal in window (for reset time calculation)
+  const oldestProposal = await Proposal.findOne({
+    freelancerId,
+    createdAt: { $gte: windowStart },
+    status: { $ne: 'withdrawn' },
+  })
+    .sort({ createdAt: 1 })
+    .select('createdAt')
+    .lean();
+  
+  return {
+    count,
+    oldestProposalDate: oldestProposal?.createdAt || null,
+  };
+};
+
+/**
+ * Check if freelancer has exceeded weekly proposal limit
+ * 
+ * @param {string} freelancerId - The freelancer's user ID
+ * @throws {AppError} If limit is exceeded (429)
+ */
+const checkWeeklyProposalLimit = async (freelancerId) => {
+  const { count, oldestProposalDate } = await getWeeklyProposalCount(freelancerId);
+  
+  if (count >= WEEKLY_PROPOSAL_LIMIT) {
+    // Calculate when the oldest proposal will fall outside the window
+    const resetsAt = oldestProposalDate 
+      ? new Date(oldestProposalDate.getTime() + LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+      : null;
+    
+    const error = createAppError(
+      `Weekly proposal limit exceeded. You have submitted ${count} proposals in the last 7 days. Maximum allowed: ${WEEKLY_PROPOSAL_LIMIT}.`,
+      429
+    );
+    error.code = 'PROPOSAL_LIMIT_EXCEEDED';
+    error.details = {
+      limit: WEEKLY_PROPOSAL_LIMIT,
+      used: count,
+      remaining: 0,
+      resetsAt,
+    };
+    throw error;
+  }
+};
+
+/**
+ * Get proposal limit status for a freelancer
+ * 
+ * @param {string} freelancerId - The freelancer's user ID
+ * @returns {Promise<Object>} Limit status details
+ */
+export const getProposalLimitStatus = async (freelancerId) => {
+  const { count, oldestProposalDate } = await getWeeklyProposalCount(freelancerId);
+  
+  const remaining = Math.max(0, WEEKLY_PROPOSAL_LIMIT - count);
+  
+  // Calculate reset time (when oldest proposal exits the window)
+  const resetsAt = oldestProposalDate && count >= WEEKLY_PROPOSAL_LIMIT
+    ? new Date(oldestProposalDate.getTime() + LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+    : null;
+  
+  return {
+    limit: WEEKLY_PROPOSAL_LIMIT,
+    used: count,
+    remaining,
+    windowDays: LIMIT_WINDOW_DAYS,
+    resetsAt,
+    canSubmit: count < WEEKLY_PROPOSAL_LIMIT,
+  };
+};
+
 export const createProposal = async (userId, proposalData) => {
   const { jobId, coverLetter, bidAmount, deliveryTime, attachments } = proposalData;
 
@@ -17,6 +110,9 @@ export const createProposal = async (userId, proposalData) => {
   if (user.role !== "freelancer") {
     throw createAppError("Only freelancers can submit proposals", 403);
   }
+
+  // Check weekly proposal limit BEFORE any other validation
+  await checkWeeklyProposalLimit(userId);
 
   const job = await Job.findById(jobId);
   if (!job) {

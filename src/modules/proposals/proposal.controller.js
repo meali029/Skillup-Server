@@ -138,3 +138,12 @@ export const regenerateProposalDraft = asyncHandler(async (req, res) => {
   const draft = await proposalService.regenerateProposalDraft(jobId, req.user.id);
   successResponse(res, draft, 'Proposal draft regenerated successfully');
 });
+
+/**
+ * Get weekly proposal limit status
+ * Returns how many proposals the freelancer has used and how many remain
+ */
+export const getProposalLimitStatus = asyncHandler(async (req, res) => {
+  const limitStatus = await proposalService.getProposalLimitStatus(req.user.id);
+  successResponse(res, { limitStatus }, "Proposal limit status retrieved successfully");
+});

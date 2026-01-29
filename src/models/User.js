@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema({
   }, // hashed (for email/password users) - not required for Google OAuth
   googleId: { type: String }, // Google OAuth ID
   avatar: { type: String },
-  role: { type: String, enum: ["freelancer", "client", "admin"] }, // Not required - user selects during profile completion
+  role: { type: String, enum: ["freelancer", "client", "admin", "super_admin"] }, // Not required - user selects during profile completion
   adminRole: { 
     type: String, 
     enum: ["super_admin", "admin", "moderator"],
@@ -57,9 +57,19 @@ const userSchema = new mongoose.Schema({
   activeJobsCount: { type: Number, default: 0, min: 0 },
   totalSpent: { type: Number, default: 0, min: 0 },
   
+  // Rating and Review aggregation (for both freelancers and clients)
+  rating: {
+    average: { type: Number, default: 0, min: 0, max: 5 },
+    count: { type: Number, default: 0, min: 0 },
+  },
+  
   // Profile completion and verification
   isProfileComplete: { type: Boolean, default: false },
   isEmailVerified: { type: Boolean, default: false },
+  
+  // Email verification fields
+  emailVerificationToken: { type: String, select: false },
+  emailVerificationExpires: { type: Date, select: false },
   
   // CNIC Verification fields
   cnic: {
@@ -68,8 +78,19 @@ const userSchema = new mongoose.Schema({
     dateOfBirth: { type: Date },
     issueDate: { type: Date },
     expiryDate: { type: Date },
-    frontImage: { type: String }, // URL to front image
-    backImage: { type: String }, // URL to back image
+    // Cloudinary image storage (new format)
+    frontImage: {
+      publicId: { type: String }, // Cloudinary public ID
+      secureUrl: { type: String }, // Cloudinary secure URL
+      width: { type: Number },
+      height: { type: Number },
+    },
+    backImage: {
+      publicId: { type: String }, // Cloudinary public ID
+      secureUrl: { type: String }, // Cloudinary secure URL
+      width: { type: Number },
+      height: { type: Number },
+    },
     status: {
       type: String,
       enum: ['not_submitted', 'pending', 'under_review', 'verified', 'rejected', 'reupload_requested'],
@@ -80,19 +101,32 @@ const userSchema = new mongoose.Schema({
     reviewedAt: { type: Date },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     
-    // OCR extracted data
+    // OCR extracted data (assistive only, not authoritative)
     ocrData: {
       extractedCnicNumber: { type: String },
       extractedName: { type: String },
       extractedFatherName: { type: String },
       extractedDateOfBirth: { type: Date },
+      extractedDateOfIssue: { type: Date },
+      extractedDateOfExpiry: { type: Date },
+      extractedGender: { type: String },
       confidence: { type: Number, min: 0, max: 100 },
+      isLowConfidence: { type: Boolean, default: true },
+      extractionMethod: { type: String },
       rawText: {
         front: { type: String },
         back: { type: String }
       },
-      extractedAt: { type: Date }
-    }
+      extractedAt: { type: Date },
+      errors: [{ type: String }],
+    },
+    
+    // Submission history for rate limiting
+    submissionHistory: [{
+      submittedAt: { type: Date },
+      previousStatus: { type: String },
+      ocrConfidence: { type: Number },
+    }],
   },
   
   // Account status
@@ -127,7 +161,8 @@ const userSchema = new mongoose.Schema({
 
 // Indexes for efficient querying
 userSchema.index({ email: 1 }, { unique: true }); // Email unique index
-userSchema.index({ 'cnic.number': 1 }, { sparse: true }); // CNIC number index (sparse for users without CNIC)
+userSchema.index({ 'cnic.number': 1 }, { sparse: true }); // Verified CNIC number index (sparse for users without CNIC)
+userSchema.index({ 'cnic.ocrData.extractedCnicNumber': 1 }, { sparse: true }); // OCR extracted CNIC for search
 userSchema.index({ 'cnic.status': 1 }); // CNIC status index for admin filtering
 userSchema.index({ role: 1, isActive: 1 }); // Role and active status
 userSchema.index({ createdAt: -1 }); // Recent users
@@ -160,14 +195,14 @@ userSchema.set('toObject', { virtuals: true });
 userSchema.pre('save', async function(next) {
   this.updatedAt = new Date();
   
-  // Validate: If role is 'admin', adminRole must be set
+  // Validate: If role is 'admin', adminRole must be set (super_admin role doesn't need adminRole)
   if (this.role === 'admin' && !this.adminRole) {
     const error = new Error('Admin users must have an adminRole (super_admin, admin, or moderator)');
     return next(error);
   }
   
-  // Validate: If role is not 'admin', adminRole should not be set
-  if (this.role !== 'admin' && this.adminRole) {
+  // Validate: If role is not 'admin' or 'super_admin', adminRole should not be set
+  if (this.role !== 'admin' && this.role !== 'super_admin' && this.adminRole) {
     this.adminRole = undefined; // Clear adminRole for non-admin users
   }
   

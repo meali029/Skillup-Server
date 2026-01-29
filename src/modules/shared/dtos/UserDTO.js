@@ -1,3 +1,5 @@
+import { calculateProfileCompleteness } from '../../profile/profile.service.js';
+
 export const formatUser = (user) => {
   if (!user) return null;
 
@@ -8,6 +10,8 @@ export const formatUser = (user) => {
     role: user.role,
     avatar: user.avatar,
     isProfileComplete: user.isProfileComplete,
+    // CRITICAL: Include email verification status for auth flow
+    isEmailVerified: user.isEmailVerified || false,
     provider: user.provider,
   };
 
@@ -29,12 +33,16 @@ export const formatUser = (user) => {
     formattedUser.availability = user.availability;
     formattedUser.languages = user.languages || [];
     formattedUser.website = user.website;
+    // Include rating for freelancers
+    formattedUser.rating = user.rating || { average: 0, count: 0 };
   }
 
   if (user.role === 'client') {
     formattedUser.companyName = user.companyName;
     formattedUser.companySize = user.companySize;
     formattedUser.industry = user.industry;
+    // Include rating for clients
+    formattedUser.rating = user.rating || { average: 0, count: 0 };
   }
 
   formattedUser.createdAt = user.createdAt;
@@ -45,6 +53,12 @@ export const formatUser = (user) => {
     if (user.cnicVerifiedAt) formattedUser.cnicVerifiedAt = user.cnicVerifiedAt;
     if (user.cnicRejectionReason) formattedUser.cnicRejectionReason = user.cnicRejectionReason;
     if (user.cnicSubmittedAt) formattedUser.cnicSubmittedAt = user.cnicSubmittedAt;
+  }
+
+  // Profile Completeness (calculated dynamically for freelancers and clients)
+  const profileCompleteness = calculateProfileCompleteness(user);
+  if (profileCompleteness) {
+    formattedUser.profileCompleteness = profileCompleteness;
   }
 
   return formattedUser;

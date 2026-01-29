@@ -6,10 +6,17 @@ import User from '../models/User.js';
 export function initializePassport() {
   // Only configure Google strategy if environment variables are available
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    
+    // CRITICAL: Use environment-based callback URL - NO hardcoded localhost
+    const callbackURL = process.env.GOOGLE_CALLBACK_URL;
+    if (!callbackURL) {
+      console.warn('[Passport] WARNING: GOOGLE_CALLBACK_URL not set. Google OAuth may not work correctly.');
+    }
+    
     passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:5000/api/auth/google/callback"
+      callbackURL: callbackURL || "http://localhost:5000/api/auth/google/callback"
     }, async (accessToken, refreshToken, profile, done) => {
       try {
         if (!profile.emails || !profile.emails[0] || !profile.emails[0].value) {
@@ -46,24 +53,34 @@ export function initializePassport() {
           user.googleId = profile.id;
           user.provider = 'google';
           user.avatar = profile.photos[0]?.value || '';
+          // CRITICAL: Google users are auto-verified
+          user.isEmailVerified = true;
           await user.save();
           
           return done(null, user);
-        }        
+        }
+        
+        // Create new user - Google users are email-verified by default
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
           email: profile.emails[0].value,
           avatar: profile.photos[0]?.value || '',
           provider: 'google',
+          // CRITICAL: Google users are auto-verified and need to complete profile
           isEmailVerified: true,
           isProfileComplete: false
-        });     
+        });
+        
+        console.log('[Passport] New Google user created:', user.email, '- Profile incomplete, email verified');
         return done(null, user);
       } catch (error) {
+        console.error('[Passport] Google OAuth error:', error);
         return done(error, null);
       }
     }));
+  } else {
+    console.warn('[Passport] Google OAuth not configured - missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
   }
 
   // Serialize user for session

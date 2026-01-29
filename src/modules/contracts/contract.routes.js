@@ -9,80 +9,494 @@ const router = express.Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Get contract statistics
+/**
+ * @swagger
+ * /api/contracts/stats/me:
+ *   get:
+ *     summary: Get contract statistics for current user
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Contract statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 stats:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     active:
+ *                       type: integer
+ *                     completed:
+ *                       type: integer
+ *                     totalEarnings:
+ *                       type: number
+ *       401:
+ *         description: Not authenticated
+ */
 router.get('/stats/me', contractController.getMyStats);
 
-// Create contract from proposal
+/**
+ * @swagger
+ * /api/contracts/from-proposal:
+ *   post:
+ *     summary: Create a contract from accepted proposal
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - proposalId
+ *             properties:
+ *               proposalId:
+ *                 type: string
+ *               milestones:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     title:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     amount:
+ *                       type: number
+ *                     dueDate:
+ *                       type: string
+ *                       format: date-time
+ *     responses:
+ *       201:
+ *         description: Contract created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 contract:
+ *                   $ref: '#/components/schemas/Contract'
+ *       401:
+ *         description: Not authenticated
+ *       400:
+ *         description: Validation error
+ *       404:
+ *         description: Proposal not found
+ */
 router.post(
   '/from-proposal',
   validate(contractValidation.createFromProposal),
   contractController.createFromProposal
 );
 
-// Get all contracts for user
+/**
+ * @swagger
+ * /api/contracts:
+ *   get:
+ *     summary: Get all contracts for current user
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, active, completed, cancelled, disputed]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of contracts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 contracts:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Contract'
+ *       401:
+ *         description: Not authenticated
+ */
 router.get(
   '/',
   validate(contractValidation.queryContracts),
   contractController.getMyContracts
 );
 
-// Get contract by ID
+/**
+ * @swagger
+ * /api/contracts/{id}:
+ *   get:
+ *     summary: Get contract by ID
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contract details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 contract:
+ *                   $ref: '#/components/schemas/Contract'
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Contract not found
+ */
 router.get(
   '/:id',
   validate(contractValidation.getContract),
   contractController.getContract
 );
 
-// Accept or decline contract
+/**
+ * @swagger
+ * /api/contracts/{id}/respond:
+ *   post:
+ *     summary: Accept or decline a contract (freelancer)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - action
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [accept, decline]
+ *               reason:
+ *                 type: string
+ *                 description: Required if declining
+ *     responses:
+ *       200:
+ *         description: Contract response recorded
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
 router.post(
   '/:id/respond',
   validate(contractValidation.respondToContract),
   contractController.respondToContract
 );
 
-// Add milestone
+/**
+ * @swagger
+ * /api/contracts/{id}/milestones:
+ *   post:
+ *     summary: Add a milestone to contract
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - amount
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               amount:
+ *                 type: number
+ *               dueDate:
+ *                 type: string
+ *                 format: date-time
+ *     responses:
+ *       200:
+ *         description: Milestone added
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
 router.post(
   '/:id/milestones',
   validate(contractValidation.addMilestone),
   contractController.addMilestone
 );
 
-// Update milestone
+/**
+ * @swagger
+ * /api/contracts/{id}/milestones/{milestoneId}:
+ *   patch:
+ *     summary: Update a milestone
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: milestoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               amount:
+ *                 type: number
+ *               status:
+ *                 type: string
+ *                 enum: [pending, in_progress, completed]
+ *     responses:
+ *       200:
+ *         description: Milestone updated
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Contract or milestone not found
+ */
 router.patch(
   '/:id/milestones/:milestoneId',
   validate(contractValidation.updateMilestone),
   contractController.updateMilestone
 );
 
-// Complete contract
+/**
+ * @swagger
+ * /api/contracts/{id}/complete:
+ *   post:
+ *     summary: Mark contract as complete
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contract marked as complete
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
 router.post(
   '/:id/complete',
   validate(contractValidation.getContract),
   contractController.completeContract
 );
 
-// Cancel contract
+/**
+ * @swagger
+ * /api/contracts/{id}/cancel:
+ *   post:
+ *     summary: Cancel a contract
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reason
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Contract cancelled
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
 router.post(
   '/:id/cancel',
   validate(contractValidation.cancelContract),
   contractController.cancelContract
 );
 
-// Fund milestone escrow
+/**
+ * @swagger
+ * /api/contracts/{id}/milestones/{milestoneId}/fund:
+ *   post:
+ *     summary: Fund milestone escrow (client)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: milestoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Milestone funded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 escrow:
+ *                   type: object
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (clients only)
+ *       400:
+ *         description: Insufficient balance
+ */
 router.post(
   '/:id/milestones/:milestoneId/fund',
   validate(contractValidation.fundMilestoneEscrow),
   contractController.fundMilestoneEscrow
 );
 
-// Approve milestone and release escrow
+/**
+ * @swagger
+ * /api/contracts/{id}/milestones/{milestoneId}/approve:
+ *   post:
+ *     summary: Approve milestone and release escrow (client)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: milestoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Milestone approved and payment released
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (clients only)
+ *       404:
+ *         description: Contract or milestone not found
+ */
 router.post(
   '/:id/milestones/:milestoneId/approve',
   validate(contractValidation.approveMilestone),
   contractController.approveMilestone
 );
 
-// Verify contract payment
+/**
+ * @swagger
+ * /api/contracts/{id}/verify-payment:
+ *   post:
+ *     summary: Verify contract payment status
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Payment verification result
+ *       401:
+ *         description: Not authenticated
+ *       404:
+ *         description: Contract not found
+ */
 router.post(
   '/:id/verify-payment',
   contractController.verifyContractPayment

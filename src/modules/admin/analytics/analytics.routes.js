@@ -11,58 +11,190 @@ router.use(authenticate);
 router.use(authorize('admin'));
 
 /**
- * @route   GET /api/admin/analytics/dashboard
- * @desc    Get dashboard metrics
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/analytics/dashboard:
+ *   get:
+ *     summary: Get dashboard metrics
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard metrics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 metrics:
+ *                   type: object
+ *                   properties:
+ *                     totalUsers:
+ *                       type: integer
+ *                     totalJobs:
+ *                       type: integer
+ *                     totalContracts:
+ *                       type: integer
+ *                     totalRevenue:
+ *                       type: number
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/dashboard', requirePermission(PERMISSIONS.VIEW_ANALYTICS), analyticsController.getDashboardMetrics);
 
 /**
- * @route   GET /api/admin/analytics/user-growth
- * @desc    Get user growth report
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/analytics/user-growth:
+ *   get:
+ *     summary: Get user growth report
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [week, month, year]
+ *     responses:
+ *       200:
+ *         description: User growth data
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/user-growth', requirePermission(PERMISSIONS.VIEW_ANALYTICS), analyticsController.getUserGrowthReport);
 
 /**
- * @route   GET /api/admin/analytics/revenue
- * @desc    Get revenue report
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/analytics/revenue:
+ *   get:
+ *     summary: Get revenue report
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [week, month, year]
+ *     responses:
+ *       200:
+ *         description: Revenue data
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/revenue', requirePermission(PERMISSIONS.VIEW_ADVANCED_ANALYTICS), analyticsController.getRevenueReport);
 
 /**
- * @route   GET /api/admin/analytics/categories
- * @desc    Get category distribution
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/analytics/categories:
+ *   get:
+ *     summary: Get category distribution
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Category distribution data
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/categories', requirePermission(PERMISSIONS.VIEW_ANALYTICS), analyticsController.getCategoryDistribution);
 
 /**
- * @route   GET /api/admin/analytics/flagged-jobs
- * @desc    Get flagged jobs report
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/analytics/flagged-jobs:
+ *   get:
+ *     summary: Get flagged jobs report
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Flagged jobs data
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/flagged-jobs', requirePermission(PERMISSIONS.VIEW_ANALYTICS), analyticsController.getFlaggedJobsReport);
 
 /**
- * @route   GET /api/admin/analytics/export/pdf
- * @desc    Export analytics to PDF
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/analytics/export/pdf:
+ *   get:
+ *     summary: Export analytics to PDF
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: PDF file download
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/export/pdf', requirePermission(PERMISSIONS.EXPORT_ANALYTICS), analyticsController.exportToPDF);
 
 /**
- * @route   GET /api/admin/analytics/export/excel
- * @desc    Export analytics to Excel
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/analytics/export/excel:
+ *   get:
+ *     summary: Export analytics to Excel
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Excel file download
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/export/excel', requirePermission(PERMISSIONS.EXPORT_ANALYTICS), analyticsController.exportToExcel);
 
 /**
- * @route   GET /api/admin/analytics/export/csv
- * @desc    Export analytics to CSV
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/analytics/export/csv:
+ *   get:
+ *     summary: Export analytics to CSV
+ *     tags: [Admin - Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV file download
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/export/csv', requirePermission(PERMISSIONS.EXPORT_ANALYTICS), analyticsController.exportToCSV);
 

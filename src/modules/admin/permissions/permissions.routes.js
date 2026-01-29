@@ -8,16 +8,68 @@ const router = express.Router();
 router.use(authenticate, authorize('admin'));
 
 /**
- * @route   GET /api/admin/permissions
- * @desc    Get current admin user's permissions
- * @access  Admin
+ * @swagger
+ * /api/admin/permissions:
+ *   get:
+ *     summary: Get current admin user's permissions
+ *     tags: [Admin - Permissions]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Admin permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 permissions:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/', getMyPermissions);
 
 /**
- * @route   GET /api/admin/permissions/profile
- * @desc    Get admin profile with permissions
- * @access  Admin
+ * @swagger
+ * /api/admin/permissions/profile:
+ *   get:
+ *     summary: Get admin profile with permissions
+ *     tags: [Admin - Permissions]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Admin profile with permissions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 profile:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     adminRole:
+ *                       type: string
+ *                       enum: [moderator, admin, super_admin]
+ *                     permissions:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get('/profile', getMyAdminProfile);
 

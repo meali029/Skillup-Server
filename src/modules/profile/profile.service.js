@@ -1,6 +1,67 @@
 import User from "../../models/User.js";
 import { AppError, createAppError } from "../../core/errors/index.js";
 
+// Profile Completeness Configuration
+const FREELANCER_FIELDS = [
+  { field: 'name', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'avatar', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'bio', check: (v) => typeof v === 'string' && v.trim().length >= 50 },
+  { field: 'location', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'phone', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'skills', check: (v) => Array.isArray(v) && v.length >= 3 },
+  { field: 'hourlyRate', check: (v) => typeof v === 'number' && v > 0 },
+  { field: 'experience', check: (v) => typeof v === 'string' && ['beginner', 'intermediate', 'expert'].includes(v) },
+  { field: 'languages', check: (v) => Array.isArray(v) && v.length >= 1 },
+  { field: 'portfolio', check: (v) => Array.isArray(v) && v.length >= 1 },
+];
+
+const CLIENT_FIELDS = [
+  { field: 'name', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'avatar', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'bio', check: (v) => typeof v === 'string' && v.trim().length >= 30 },
+  { field: 'location', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'companyName', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'companySize', check: (v) => typeof v === 'string' && ['1-10', '11-50', '51-200', '201-500', '500+'].includes(v) },
+  { field: 'industry', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+];
+
+/**
+ * Calculate profile completeness percentage for a user
+ * 
+ * @param {Object} user - The user document
+ * @returns {Object|null} Completeness data or null for admin/undefined role
+ */
+export const calculateProfileCompleteness = (user) => {
+  if (!user || !user.role || user.role === 'admin') {
+    return null;
+  }
+
+  const fields = user.role === 'freelancer' ? FREELANCER_FIELDS : CLIENT_FIELDS;
+  const totalFields = fields.length;
+  
+  const filledFields = [];
+  const missingFields = [];
+
+  fields.forEach(({ field, check }) => {
+    const value = user[field];
+    if (check(value)) {
+      filledFields.push(field);
+    } else {
+      missingFields.push(field);
+    }
+  });
+
+  const filledCount = filledFields.length;
+  const percentage = Math.round((filledCount / totalFields) * 100);
+
+  return {
+    percentage,
+    filledFields: filledCount,
+    totalFields,
+    missingFields,
+  };
+};
+
 export const getProfile = async (userId) => {
   const user = await User.findById(userId);
   

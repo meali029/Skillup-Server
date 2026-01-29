@@ -41,6 +41,28 @@ const milestoneSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Review sub-schema for client and freelancer reviews
+const reviewSchema = new mongoose.Schema(
+  {
+    rating: {
+      type: Number,
+      required: true,
+      min: 1,
+      max: 5,
+    },
+    comment: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
 const contractSchema = new mongoose.Schema(
   {
     job: {
@@ -146,6 +168,9 @@ const contractSchema = new mongoose.Schema(
       type: String,
       index: true,
     },
+    // Reviews - Client reviews the Freelancer, Freelancer reviews the Client
+    clientReview: reviewSchema, // Client's review OF the Freelancer
+    freelancerReview: reviewSchema, // Freelancer's review OF the Client
     metadata: {
       type: Map,
       of: mongoose.Schema.Types.Mixed,
