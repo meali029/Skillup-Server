@@ -11,6 +11,17 @@ export const updateProfileSchema = Joi.object({
       "string.max": "Name must not exceed 100 characters"
     }),
   
+  title: Joi.string()
+    .trim()
+    .min(5)
+    .max(100)
+    .optional()
+    .allow("")
+    .messages({
+      "string.min": "Professional title must be at least 5 characters long",
+      "string.max": "Professional title must not exceed 100 characters"
+    }),
+  
   bio: Joi.string()
     .trim()
     .max(500)

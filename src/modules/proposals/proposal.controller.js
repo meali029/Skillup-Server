@@ -1,5 +1,6 @@
 import * as proposalService from "./proposal.service.js";
 import { asyncHandler, successResponse, paginatedResponse } from "../../core/utils/index.js";
+import { formatUser } from "../shared/dtos/index.js";
 
 export const submitProposal = asyncHandler(async (req, res) => {
   const proposal = await proposalService.createProposal(req.user.id, req.validatedData || req.body);
@@ -86,7 +87,21 @@ export const getClientProposalDetails = asyncHandler(async (req, res) => {
     console.debug('[Notification] client viewed flow error', err.message);
   }
 
-  successResponse(res, { proposal }, "Proposal fetched successfully");
+  // Format the proposal to include profileCompleteness for freelancer
+  const formattedProposal = proposal.toObject();
+  if (formattedProposal.freelancerId) {
+    formattedProposal.freelancerId = formatUser(proposal.freelancerId);
+  }
+  
+  // Ensure job has proper id field for frontend
+  if (formattedProposal.jobId && formattedProposal.jobId._id) {
+    formattedProposal.jobId = {
+      ...formattedProposal.jobId,
+      id: formattedProposal.jobId._id.toString(),
+    };
+  }
+
+  successResponse(res, { proposal: formattedProposal }, "Proposal fetched successfully");
 });
 
 export const acceptProposal = asyncHandler(async (req, res) => {

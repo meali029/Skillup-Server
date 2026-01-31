@@ -11,7 +11,7 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Configure storage
+// Configure storage (disk storage for portfolio, memory for avatars)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadsDir);
@@ -23,6 +23,9 @@ const storage = multer.diskStorage({
     cb(null, `${name}-${uniqueSuffix}${ext}`);
   },
 });
+
+// Memory storage for avatar uploads (will be uploaded to Cloudinary)
+const memoryStorage = multer.memoryStorage();
 
 // File filter to accept only images
 export const fileFilter = (req, file, cb) => {
@@ -53,9 +56,27 @@ export const cnicFileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer for images
+// Configure multer for images (disk storage)
 const upload = multer({
   storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
+
+// Configure multer for avatar uploads (memory storage for Cloudinary)
+const avatarUpload = multer({
+  storage: memoryStorage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
+
+// Configure multer for portfolio images (memory storage for Cloudinary)
+const portfolioUpload = multer({
+  storage: memoryStorage,
   fileFilter: fileFilter,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
@@ -88,6 +109,12 @@ export const handleUploadError = (err, req, res, next) => {
 // Export configured upload middleware
 export const uploadSingle = (fieldName) => upload.single(fieldName);
 export const uploadMultiple = (fieldName, maxCount) => upload.array(fieldName, maxCount);
+
+// Avatar upload middleware (uses memory storage)
+export const uploadAvatarSingle = () => avatarUpload.single("avatar");
+
+// Portfolio image upload middleware (uses memory storage for Cloudinary)
+export const uploadPortfolioSingle = (fieldName = "portfolioImage") => portfolioUpload.single(fieldName);
 
 // CNIC document upload middleware
 export const uploadCNICSingle = (fieldName) => uploadCNIC.single(fieldName);

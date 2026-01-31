@@ -9,6 +9,8 @@ import {
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
 import { AppError, createAppError } from "../../core/errors/index.js";
 import { formatUser } from "../shared/dtos/index.js";
+import { uploadToCloudinary, deleteFromCloudinary } from "../../config/cloudinary.js";
+import sharp from "sharp";
 import path from "path";
 
 export const getUserProfile = asyncHandler(async (req, res) => {
@@ -48,15 +50,65 @@ export const uploadAvatar = asyncHandler(async (req, res) => {
     throw AppError("No file uploaded", 400);
   }
   
-  const avatarUrl = `/uploads/${req.file.filename}`;
-  
-  const user = await updateAvatar(req.user.id, avatarUrl);
-  
-  successResponse(
-    res,
-    { user: formatUser(user), avatarUrl },
-    "Avatar uploaded successfully"
-  );
+  try {
+    // Get current user to check for existing avatar
+    const currentUser = await getProfile(req.user.id);
+    
+    // Optimize image with Sharp: resize to 400x400, compress, convert to JPEG
+    const optimizedBuffer = await sharp(req.file.buffer)
+      .resize(400, 400, {
+        fit: 'cover',
+        position: 'center'
+      })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    
+    // Upload to Cloudinary
+    const publicId = `user_${req.user.id}_${Date.now()}`;
+    const uploadResult = await uploadToCloudinary(
+      optimizedBuffer,
+      'avatars',
+      publicId,
+      {
+        type: 'upload', // Make avatars public (not authenticated)
+        access_mode: 'public',
+        transformation: [
+          { width: 400, height: 400, crop: 'fill' },
+          { quality: 'auto:good' },
+          { fetch_format: 'auto' }
+        ]
+      }
+    );
+    
+    // Delete old avatar from Cloudinary if it exists and is a Cloudinary URL
+    if (currentUser.avatar && currentUser.avatar.includes('cloudinary')) {
+      const oldPublicId = currentUser.avatar.split('/').pop().split('.')[0];
+      const folderPath = `avatars/${oldPublicId}`;
+      await deleteFromCloudinary(folderPath).catch(err => 
+        console.warn('Failed to delete old avatar:', err.message)
+      );
+    }
+    
+    // Update user with new avatar URL
+    const user = await updateAvatar(req.user.id, uploadResult.secureUrl);
+    
+    successResponse(
+      res,
+      { 
+        user: formatUser(user), 
+        avatarUrl: uploadResult.secureUrl,
+        cloudinaryData: {
+          publicId: uploadResult.publicId,
+          width: uploadResult.width,
+          height: uploadResult.height
+        }
+      },
+      "Avatar uploaded successfully"
+    );
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    throw AppError(`Failed to upload avatar: ${error.message}`, 500);
+  }
 });
 
 export const uploadPortfolioImage = asyncHandler(async (req, res) => {
@@ -64,13 +116,29 @@ export const uploadPortfolioImage = asyncHandler(async (req, res) => {
     throw AppError("No file uploaded", 400);
   }
   
-  const imageUrl = `/uploads/${req.file.filename}`;
-  
-  successResponse(
-    res,
-    { imageUrl },
-    "Portfolio image uploaded successfully"
-  );
+  try {
+    // Optimize image using Sharp (resize to max 1200px width, maintain aspect ratio)
+    const optimizedBuffer = await sharp(req.file.buffer)
+      .resize(1200, null, { 
+        withoutEnlargement: true, // Don't enlarge if smaller than 1200px
+        fit: 'inside' 
+      })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    // Upload to Cloudinary
+    const publicId = `portfolio/${req.user.id}/${Date.now()}`;
+    const imageUrl = await uploadToCloudinary(optimizedBuffer, 'portfolio', publicId);
+
+    successResponse(
+      res,
+      { imageUrl },
+      "Portfolio image uploaded successfully"
+    );
+  } catch (error) {
+    console.error('Portfolio image upload error:', error);
+    throw AppError("Failed to upload image to Cloudinary", 500);
+  }
 });
 
 export const addPortfolio = asyncHandler(async (req, res) => {

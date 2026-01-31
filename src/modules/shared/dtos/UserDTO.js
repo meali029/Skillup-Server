@@ -23,6 +23,7 @@ export const formatUser = (user) => {
   if (user.bio) formattedUser.bio = user.bio;
   if (user.location) formattedUser.location = user.location;
   if (user.phone) formattedUser.phone = user.phone;
+  if (user.title) formattedUser.title = user.title;
 
   if (user.role === 'freelancer') {
     formattedUser.skills = user.skills || [];

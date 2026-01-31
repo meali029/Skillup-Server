@@ -10,7 +10,7 @@ import {
   deletePortfolio
 } from "./profile.controller.js";
 import { authenticate } from "../../core/middlewares/index.js";
-import { uploadSingle, handleUploadError } from "../../core/middlewares/upload.js";
+import { uploadSingle, uploadAvatarSingle, uploadPortfolioSingle, handleUploadError } from "../../core/middlewares/upload.js";
 import { validateProfileUpdate, validatePortfolioItem } from "./profile.validation.js";
 
 function createProfileRoutes() {
@@ -131,7 +131,7 @@ function createProfileRoutes() {
    *       400:
    *         description: Invalid file
    */
-  router.post("/avatar", authenticate, uploadSingle("avatar"), handleUploadError, uploadAvatar);
+  router.post("/avatar", authenticate, uploadAvatarSingle(), handleUploadError, uploadAvatar);
   
   /**
    * @swagger
@@ -168,7 +168,7 @@ function createProfileRoutes() {
    *       400:
    *         description: Invalid file
    */
-  router.post("/portfolio/upload", authenticate, uploadSingle("portfolioImage"), handleUploadError, uploadPortfolioImage);
+  router.post("/portfolio/upload", authenticate, uploadPortfolioSingle("portfolioImage"), handleUploadError, uploadPortfolioImage);
 
   /**
    * @swagger

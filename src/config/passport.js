@@ -50,9 +50,25 @@ export function initializePassport() {
           }
           
           // Link Google account to existing user
-          user.googleId = profile.id;
-          user.provider = 'google';
-          user.avatar = profile.photos[0]?.value || '';
+          // IMPORTANT: Don't overwrite provider if user registered locally
+          // This allows users to login with BOTH password AND Google
+          if (!user.googleId) {
+            user.googleId = profile.id;
+            console.log('[Passport] Linked Google account to existing user:', user.email);
+          }
+          
+          // Only set provider to 'google' if user doesn't have a password (pure OAuth user)
+          // If user has password, keep provider as 'local' or set to 'both' to indicate linked account
+          if (user.provider === 'local') {
+            user.provider = 'both'; // User can login with both password and Google
+            console.log('[Passport] User can now login with both password and Google:', user.email);
+          }
+          
+          // Update avatar only if user doesn't have one
+          if (!user.avatar && profile.photos[0]?.value) {
+            user.avatar = profile.photos[0].value;
+          }
+          
           // CRITICAL: Google users are auto-verified
           user.isEmailVerified = true;
           await user.save();

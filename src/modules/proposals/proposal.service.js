@@ -380,7 +380,7 @@ export const getJobProposals = async (jobId, clientId, filters = {}) => {
 
 export const getClientProposalById = async (proposalId, clientId) => {
   const proposal = await Proposal.findById(proposalId)
-    .populate("freelancerId", "name email avatar skills hourlyRate experience bio location")
+    .populate("freelancerId") // Populate all fields for profileCompleteness calculation
     .populate("jobId", "title description budget budgetMin budgetMax client");
 
   if (!proposal) {

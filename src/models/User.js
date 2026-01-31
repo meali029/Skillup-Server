@@ -24,6 +24,7 @@ const userSchema = new mongoose.Schema({
   phone: { type: String },
   website: { type: String },
   languages: [{ type: String }],
+  title: { type: String, maxlength: 100 }, // Professional title (e.g., "Full Stack Developer")
   availability: { 
     type: String, 
     enum: ["available", "busy", "not-available"],

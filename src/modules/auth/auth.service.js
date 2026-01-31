@@ -164,8 +164,25 @@ export const loginLocal = async ({ email, password }) => {
   const user = await User.findOne({ email }).select('+password');
   
   // Security: Same error for non-existent user to prevent email enumeration
-  if (!user || user.provider !== "local") {
+  if (!user) {
     throw createAppError("Invalid credentials", 401);
+  }
+  
+  // Allow login if provider is 'local' OR 'both' (linked account)
+  // Deny only if provider is purely 'google' (no password ever set)
+  if (user.provider === 'google') {
+    throw createAppError(
+      "This account uses Google sign-in. Please login with Google instead.",
+      401
+    );
+  }
+  
+  // Check if user has a password (for safety)
+  if (!user.password) {
+    throw createAppError(
+      "This account doesn't have a password. Please login with Google or reset your password.",
+      401
+    );
   }
   
   const isPasswordValid = await user.comparePassword(password);
@@ -220,10 +237,11 @@ export const requestPasswordReset = async (email) => {
     return { message: "If this email exists, an OTP has been sent" };
   }
   
-  // Check if user signed up with OAuth (Google, etc.)
-  if (user.provider !== "local") {
+  // Check if user signed up with OAuth only (no password ever set)
+  // Allow password reset for 'local' and 'both' providers
+  if (user.provider === "google") {
     throw createAppError(
-      `This account is linked with ${user.provider === 'google' ? 'Google' : user.provider}. Please sign in using ${user.provider === 'google' ? 'Google' : user.provider}.`,
+      "This account uses Google sign-in. Password reset is not available. Please sign in using Google.",
       400
     );
   }
@@ -263,9 +281,9 @@ export const verifyOTPService = async (email, otp) => {
     throw createAppError("Invalid credentials", 400);
   }
   
-  // Check if user is local provider
-  if (user.provider !== "local") {
-    throw createAppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
+  // Check if user can reset password (local or both providers)
+  if (user.provider === "google") {
+    throw createAppError("This account uses Google sign-in. Password reset is not available for OAuth-only accounts.", 400);
   }
   
   // Check if OTP exists
@@ -420,7 +438,7 @@ export const resendVerificationEmail = async (email) => {
     throw createAppError("This email is already verified. Please log in.", 400);
   }
 
-  // Check if user is Google provider (should not need verification)
+  // Check if user is pure Google provider (should not need verification)
   if (user.provider === 'google') {
     throw createAppError("Google accounts do not require email verification.", 400);
   }
