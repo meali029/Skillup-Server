@@ -5,7 +5,7 @@ const escrowSchema = new mongoose.Schema(
     contractId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Contract',
-      required: true,
+      required: false, // Optional initially for contract-level escrow created before contract
       index: true,
     },
     milestoneId: {

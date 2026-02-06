@@ -87,6 +87,15 @@ conversationSchema.index({ participants: 1, lastMessageAt: -1 });
 conversationSchema.index({ participants: 1, isActive: 1, lastMessageAt: -1 });
 conversationSchema.index({ job: 1, participants: 1 });
 conversationSchema.index({ contract: 1 }, { unique: true, sparse: true });
+// Ensure one conversation per job per user pair (job-scoped conversations)
+conversationSchema.index(
+  { participants: 1, job: 1 }, 
+  { 
+    unique: true, 
+    partialFilterExpression: { job: { $exists: true, $ne: null } },
+    name: 'unique_conversation_per_job'
+  }
+);
 
 // Methods
 conversationSchema.methods.isParticipant = function (userId) {
@@ -199,16 +208,31 @@ conversationSchema.statics.findBetweenUsers = function (user1Id, user2Id, contex
     isActive: true,
   };
 
-  // First try to find ANY existing conversation between these users (regardless of context)
+  // If job is provided in context, find conversation specific to that job
+  if (context.job) {
+    baseQuery.job = context.job;
+  }
+  // If jobId is provided, find conversation specific to that job
+  else if (context.jobId) {
+    baseQuery.job = context.jobId;
+  }
+  // If proposalId is provided but no jobId, try to match by proposal
+  else if (context.proposal) {
+    baseQuery.proposal = context.proposal;
+  }
+  else if (context.proposalId) {
+    baseQuery.proposal = context.proposalId;
+  }
+
   return this.findOne(baseQuery);
 };
 
 conversationSchema.statics.findOrCreate = async function (participants, context = {}) {
-  // First check for ANY conversation between these users (ignore context to avoid duplicates)
+  // Check for existing conversation between these users for this specific job
   let conversation = await this.findBetweenUsers(
     participants[0],
     participants[1],
-    {} // empty context on purpose
+    context // Pass full context to match by job/proposal
   );
 
   if (!conversation) {
@@ -220,7 +244,7 @@ conversationSchema.statics.findOrCreate = async function (participants, context 
     conversation = await this.create(data);
     await conversation.populate('participants', 'name avatar email role');
   } else {
-    // Update existing conversation with missing context fields so it reflects latest linkage
+    // Update existing conversation with missing context fields
     let shouldSave = false;
     if (context.job && !conversation.job) { conversation.job = context.job; shouldSave = true; }
     if (context.proposal && !conversation.proposal) { conversation.proposal = context.proposal; shouldSave = true; }
