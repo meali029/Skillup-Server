@@ -11,6 +11,36 @@ import aiService from "../../services/ai/ai.service.js";
 const WEEKLY_PROPOSAL_LIMIT = 20;
 const LIMIT_WINDOW_DAYS = 7;
 
+// Edit Window Constants
+const EDIT_WINDOW_HOURS = 6;
+
+/**
+ * Check if a proposal can be edited
+ * Conditions: 
+ * - Status must be "pending"
+ * - Within 6 hours of creation
+ * - Client has not viewed it yet
+ * 
+ * @param {Object} proposal - The proposal document
+ * @returns {Object} { canEdit, reason }
+ */
+const checkCanEditProposal = (proposal) => {
+  if (proposal.status !== "pending") {
+    return { canEdit: false, reason: "Only pending proposals can be edited" };
+  }
+
+  if (proposal.clientViewed) {
+    return { canEdit: false, reason: "Cannot edit after client has viewed the proposal" };
+  }
+
+  const hoursElapsed = (Date.now() - new Date(proposal.createdAt).getTime()) / (1000 * 60 * 60);
+  if (hoursElapsed >= EDIT_WINDOW_HOURS) {
+    return { canEdit: false, reason: `Edit window expired. Proposals can only be edited within ${EDIT_WINDOW_HOURS} hours of submission` };
+  }
+
+  return { canEdit: true, reason: null };
+};
+
 /**
  * Get the count of proposals submitted by a freelancer in the last 7 days
  * Excludes withdrawn proposals (they don't count toward the limit)
@@ -199,7 +229,13 @@ export const getProposalById = async (proposalId, userId) => {
     throw createAppError("This proposal is no longer available", 404);
   }
 
-  return proposal;
+  // Add canEdit flag to response
+  const { canEdit, reason } = checkCanEditProposal(proposal);
+  const proposalObj = proposal.toObject();
+  proposalObj.canEdit = canEdit;
+  proposalObj.canEditReason = reason;
+
+  return proposalObj;
 };
 
 export const getFreelancerProposals = async (userId, filters = {}) => {
@@ -243,8 +279,10 @@ export const updateProposal = async (proposalId, userId, updateData) => {
     throw createAppError("You don't have permission to update this proposal", 403);
   }
 
-  if (proposal.status !== "pending") {
-    throw createAppError("You can only edit proposals that are pending", 400);
+  // Check if proposal can be edited
+  const { canEdit, reason } = checkCanEditProposal(proposal);
+  if (!canEdit) {
+    throw createAppError(reason, 403);
   }
 
   const allowedUpdates = ["coverLetter", "bidAmount", "deliveryTime", "attachments"];
@@ -390,6 +428,26 @@ export const getClientProposalById = async (proposalId, clientId) => {
   // Verify the job belongs to this client
   if (proposal.jobId.client.toString() !== clientId.toString()) {
     throw createAppError("You don't have permission to view this proposal", 403);
+  }
+
+  // Mark proposal as viewed by client (first time only)
+  if (!proposal.clientViewed) {
+    proposal.clientViewed = true;
+    proposal.clientViewedAt = new Date();
+    await proposal.save();
+
+    // Notify freelancer that client viewed their proposal
+    try {
+      await notifyUser(proposal.freelancerId._id, {
+        type: 'proposal_viewed',
+        title: 'Proposal Viewed',
+        message: `Your proposal for "${proposal.jobId.title}" has been viewed by the client`,
+        link: `/freelancer/proposals/${proposalId}`,
+        data: { proposalId, jobId: proposal.jobId._id }
+      });
+    } catch (err) {
+      console.error('[Notification] Failed to notify freelancer about proposal view', err.message);
+    }
   }
 
   return proposal;
