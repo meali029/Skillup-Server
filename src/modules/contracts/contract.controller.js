@@ -301,3 +301,79 @@ export const verifyContractPayment = asyncHandler(async (req, res) => {
     payment: result 
   }, 'Payment verified successfully', 200);
 });
+
+/**
+ * @desc    Start contract (pending → active)
+ * @route   POST /api/contracts/:id/start
+ * @access  Private (Client or Freelancer)
+ */
+export const startContract = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const contract = await contractService.startContract(id, userId);
+
+  successResponse(res, { contract }, 'Contract started successfully', 200);
+});
+
+/**
+ * @desc    Submit work for review (active → in_review)
+ * @route   POST /api/contracts/:id/submit-work
+ * @access  Private (Freelancer only)
+ */
+export const submitWork = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+  const { deliverables } = req.body;
+
+  if (!deliverables || deliverables.length === 0) {
+    throw AppError('At least one deliverable is required', 400);
+  }
+
+  const contract = await contractService.submitWork(id, userId, deliverables);
+
+  successResponse(res, { contract }, 'Work submitted successfully', 200);
+});
+
+/**
+ * @desc    Approve work and release payment (in_review → completed)
+ * @route   POST /api/contracts/:id/approve-work
+ * @access  Private (Client only)
+ */
+export const approveWork = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const contract = await contractService.approveWork(id, userId);
+
+  successResponse(res, { contract }, 'Work approved and payment released successfully', 200);
+});
+
+/**
+ * @desc    Request revision (in_review → active)
+ * @route   POST /api/contracts/:id/request-revision
+ * @access  Private (Client only)
+ */
+export const requestRevision = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+  const { feedback } = req.body;
+
+  const contract = await contractService.requestRevision(id, userId, feedback);
+
+  successResponse(res, { contract }, 'Revision requested successfully', 200);
+});
+
+/**
+ * @desc    Close contract (completed → closed)
+ * @route   POST /api/contracts/:id/close
+ * @access  Private (Client only)
+ */
+export const closeContract = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  const contract = await contractService.closeContract(id, userId);
+
+  successResponse(res, { contract }, 'Contract closed successfully', 200);
+});

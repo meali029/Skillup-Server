@@ -168,6 +168,73 @@ const contractSchema = new mongoose.Schema(
       type: String,
       index: true,
     },
+    // Deliverables submitted by freelancer
+    deliverables: [{
+      title: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      description: {
+        type: String,
+        trim: true,
+      },
+      fileUrl: {
+        type: String,
+      },
+      fileName: {
+        type: String,
+      },
+      fileType: {
+        type: String,
+      },
+      fileSize: {
+        type: Number,
+      },
+      submittedAt: {
+        type: Date,
+        default: Date.now,
+      },
+      submittedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    }],
+    // Work submission and review tracking
+    submittedAt: {
+      type: Date,
+    },
+    submittedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    reviewedAt: {
+      type: Date,
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    revisionCount: {
+      type: Number,
+      default: 0,
+    },
+    revisions: [{
+      requestedAt: {
+        type: Date,
+        default: Date.now,
+      },
+      requestedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      feedback: {
+        type: String,
+      },
+      resolvedAt: {
+        type: Date,
+      },
+    }],
     // Reviews - Client reviews the Freelancer, Freelancer reviews the Client
     clientReview: reviewSchema, // Client's review OF the Freelancer
     freelancerReview: reviewSchema, // Freelancer's review OF the Client

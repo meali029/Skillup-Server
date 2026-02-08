@@ -502,4 +502,157 @@ router.post(
   contractController.verifyContractPayment
 );
 
+/**
+ * @swagger
+ * /api/contracts/{id}/start:
+ *   post:
+ *     summary: Start contract (pending → active)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contract started successfully
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
+router.post('/:id/start', contractController.startContract);
+
+/**
+ * @swagger
+ * /api/contracts/{id}/submit-work:
+ *   post:
+ *     summary: Submit work for review (active → in_review)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - deliverables
+ *             properties:
+ *               deliverables:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     title:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     fileUrl:
+ *                       type: string
+ *                     fileName:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Work submitted successfully
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
+router.post('/:id/submit-work', contractController.submitWork);
+
+/**
+ * @swagger
+ * /api/contracts/{id}/approve-work:
+ *   post:
+ *     summary: Approve work and release payment (in_review → completed)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Work approved successfully
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
+router.post('/:id/approve-work', contractController.approveWork);
+
+/**
+ * @swagger
+ * /api/contracts/{id}/request-revision:
+ *   post:
+ *     summary: Request revision (in_review → active)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - feedback
+ *             properties:
+ *               feedback:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Revision requested successfully
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
+router.post('/:id/request-revision', contractController.requestRevision);
+
+/**
+ * @swagger
+ * /api/contracts/{id}/close:
+ *   post:
+ *     summary: Close contract (completed → closed)
+ *     tags: [Contracts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contract closed successfully
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Contract not found
+ */
+router.post('/:id/close', contractController.closeContract);
+
 export default router;

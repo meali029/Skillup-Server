@@ -828,6 +828,225 @@ class ContractService {
 
     return contract;
   }
+
+  /**
+   * Start contract (pending → active)
+   * Can be triggered by client or freelancer
+   */
+  async startContract(contractId, userId) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // Verify user is participant
+    if (!contract.isClient(userId) && !contract.isFreelancer(userId)) {
+      throw createAppError('Only contract participants can start the contract', 403);
+    }
+
+    // Verify status
+    if (contract.status !== CONTRACT_STATUS.PENDING) {
+      throw createAppError(`Cannot start contract in ${contract.status} status`, 400);
+    }
+
+    // Verify escrow is funded
+    if (contract.paymentStatus !== 'COMPLETED') {
+      throw createAppError('Cannot start contract until payment is completed', 400);
+    }
+
+    // Update status
+    contract.status = CONTRACT_STATUS.ACTIVE;
+    contract.startDate = new Date();
+    await contract.save();
+
+    await createAuditLog({
+      adminId: userId,
+      action: 'CONTRACT_STARTED',
+      targetType: 'Contract',
+      targetId: contractId,
+      details: { startedBy: userId },
+    });
+
+    return contract;
+  }
+
+  /**
+   * Submit work for review (active → in_review)
+   * Only freelancer can submit
+   */
+  async submitWork(contractId, freelancerId, deliverables) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // Verify user is freelancer
+    if (!contract.isFreelancer(freelancerId)) {
+      throw createAppError('Only the freelancer can submit work', 403);
+    }
+
+    // Verify status
+    if (contract.status !== CONTRACT_STATUS.ACTIVE) {
+      throw createAppError(`Cannot submit work in ${contract.status} status`, 400);
+    }
+
+    // Add deliverables
+    if (!deliverables || deliverables.length === 0) {
+      throw createAppError('At least one deliverable is required', 400);
+    }
+
+    const newDeliverables = deliverables.map(d => ({
+      ...d,
+      submittedAt: new Date(),
+      submittedBy: freelancerId,
+    }));
+
+    contract.deliverables.push(...newDeliverables);
+    contract.submittedAt = new Date();
+    contract.submittedBy = freelancerId;
+    contract.status = CONTRACT_STATUS.IN_REVIEW;
+    
+    await contract.save();
+
+    await createAuditLog({
+      adminId: freelancerId,
+      action: 'WORK_SUBMITTED',
+      targetType: 'Contract',
+      targetId: contractId,
+      details: { deliverableCount: deliverables.length },
+    });
+
+    // TODO: Send notification to client
+
+    return contract;
+  }
+
+  /**
+   * Approve work and release payment (in_review → completed)
+   * Only client can approve
+   */
+  async approveWork(contractId, clientId) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // Verify user is client
+    if (!contract.isClient(clientId)) {
+      throw createAppError('Only the client can approve work', 403);
+    }
+
+    // Verify status
+    if (contract.status !== CONTRACT_STATUS.IN_REVIEW) {
+      throw createAppError(`Cannot approve work in ${contract.status} status`, 400);
+    }
+
+    // Release escrow payment
+    if (contract.initialEscrowId) {
+      await escrowService.releaseEscrow(contract.initialEscrowId.toString(), clientId);
+    }
+
+    // Update contract
+    contract.status = CONTRACT_STATUS.COMPLETED;
+    contract.completedAt = new Date();
+    contract.reviewedAt = new Date();
+    contract.reviewedBy = clientId;
+    
+    await contract.save();
+
+    await createAuditLog({
+      adminId: clientId,
+      action: 'WORK_APPROVED',
+      targetType: 'Contract',
+      targetId: contractId,
+      details: { completedAt: contract.completedAt },
+    });
+
+    // TODO: Send notification to freelancer
+    // TODO: Schedule auto-close after 14 days
+
+    return contract;
+  }
+
+  /**
+   * Request revision (in_review → active)
+   * Only client can request revisions
+   */
+  async requestRevision(contractId, clientId, feedback) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // Verify user is client
+    if (!contract.isClient(clientId)) {
+      throw createAppError('Only the client can request revisions', 403);
+    }
+
+    // Verify status
+    if (contract.status !== CONTRACT_STATUS.IN_REVIEW) {
+      throw createAppError(`Cannot request revision in ${contract.status} status`, 400);
+    }
+
+    // Add revision request
+    contract.revisions.push({
+      requestedAt: new Date(),
+      requestedBy: clientId,
+      feedback: feedback || '',
+    });
+    
+    contract.revisionCount += 1;
+    contract.status = CONTRACT_STATUS.ACTIVE;
+    
+    await contract.save();
+
+    await createAuditLog({
+      adminId: clientId,
+      action: 'REVISION_REQUESTED',
+      targetType: 'Contract',
+      targetId: contractId,
+      details: { revisionCount: contract.revisionCount, feedback },
+    });
+
+    // TODO: Send notification to freelancer
+
+    return contract;
+  }
+
+  /**
+   * Close contract (completed → closed)
+   * Can be done by client or auto-close after 14 days
+   */
+  async closeContract(contractId, userId = null) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    // If userId provided, verify they're the client
+    if (userId && !contract.isClient(userId)) {
+      throw createAppError('Only the client can close the contract', 403);
+    }
+
+    // Verify status
+    if (contract.status !== CONTRACT_STATUS.COMPLETED) {
+      throw createAppError(`Cannot close contract in ${contract.status} status`, 400);
+    }
+
+    // Update status
+    contract.status = CONTRACT_STATUS.CLOSED;
+    await contract.save();
+
+    await createAuditLog({
+      adminId: userId || 'SYSTEM',
+      action: 'CONTRACT_CLOSED',
+      targetType: 'Contract',
+      targetId: contractId,
+      details: { closedBy: userId || 'auto' },
+    });
+
+    return contract;
+  }
 }
 
 export default new ContractService();

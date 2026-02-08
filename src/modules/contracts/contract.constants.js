@@ -6,12 +6,14 @@
 
 // Contract status enumeration
 export const CONTRACT_STATUS = {
-  PENDING: 'pending',
-  ACTIVE: 'active',
-  COMPLETED: 'completed',
-  CANCELLED: 'cancelled',
-  DISPUTED: 'disputed',
-  TERMINATED: 'terminated',
+  PENDING: 'pending',           // Contract created, awaiting freelancer acceptance
+  ACTIVE: 'active',             // Work in progress
+  IN_REVIEW: 'in_review',       // Work submitted, awaiting client approval
+  COMPLETED: 'completed',       // Work approved, payment released
+  CLOSED: 'closed',             // Final state, archived
+  CANCELLED: 'cancelled',       // Cancelled by client or freelancer
+  DISPUTED: 'disputed',         // Dispute raised
+  TERMINATED: 'terminated',     // Terminated by platform/admin
 };
 
 // Milestone status enumeration
@@ -38,17 +40,26 @@ export const ALLOWED_STATUS_TRANSITIONS = {
     CONTRACT_STATUS.CANCELLED,
   ],
   [CONTRACT_STATUS.ACTIVE]: [
+    CONTRACT_STATUS.IN_REVIEW,
     CONTRACT_STATUS.COMPLETED,
     CONTRACT_STATUS.CANCELLED,
     CONTRACT_STATUS.DISPUTED,
     CONTRACT_STATUS.TERMINATED,
   ],
+  [CONTRACT_STATUS.IN_REVIEW]: [
+    CONTRACT_STATUS.ACTIVE,        // Request revision
+    CONTRACT_STATUS.COMPLETED,     // Approve work
+    CONTRACT_STATUS.DISPUTED,      // Raise dispute
+  ],
   [CONTRACT_STATUS.DISPUTED]: [
     CONTRACT_STATUS.ACTIVE,
     CONTRACT_STATUS.TERMINATED,
   ],
+  [CONTRACT_STATUS.COMPLETED]: [
+    CONTRACT_STATUS.CLOSED,        // Auto-close after review period
+  ],
   // Terminal states - no transitions allowed
-  [CONTRACT_STATUS.COMPLETED]: [],
+  [CONTRACT_STATUS.CLOSED]: [],
   [CONTRACT_STATUS.CANCELLED]: [],
   [CONTRACT_STATUS.TERMINATED]: [],
 };
@@ -68,7 +79,7 @@ export const MODIFIABLE_CONTRACT_STATUSES = [
 
 // Terminal statuses (cannot be changed once reached)
 export const TERMINAL_STATUSES = [
-  CONTRACT_STATUS.COMPLETED,
+  CONTRACT_STATUS.CLOSED,
   CONTRACT_STATUS.CANCELLED,
   CONTRACT_STATUS.TERMINATED,
 ];
