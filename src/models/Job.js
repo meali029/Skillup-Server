@@ -256,6 +256,30 @@ const jobSchema = new mongoose.Schema(
       default: null,
     },
     
+    // Close information
+    closedAt: {
+      type: Date,
+    },
+    
+    closeReason: {
+      type: String,
+      enum: ['hired-on-platform', 'hired-elsewhere', 'no-longer-needed', 'budget-issues', 'other'],
+    },
+    
+    closeNote: {
+      type: String,
+      maxlength: 500,
+    },
+    
+    // Lifecycle timestamps
+    startedAt: {
+      type: Date,
+    },
+    
+    completedAt: {
+      type: Date,
+    },
+    
     // Admin Moderation
     isFlagged: {
       type: Boolean,

@@ -4,6 +4,7 @@ import Job from '../../models/Job.js';
 import Conversation from '../../models/Conversation.js';
 import { createAppError } from '../../core/errors/index.js';
 import { createAuditLog } from '../../core/utils/auditLogger.js';
+import { markJobInProgress, markJobCompleted } from '../jobs/job.service.js';
 import {
   CONTRACT_STATUS,
   MILESTONE_STATUS,
@@ -418,6 +419,14 @@ class ContractService {
       
       contract.status = newStatus;
       // startDate is auto-set by pre-save hook when status becomes active
+      
+      // Update job status to in-progress when contract is accepted
+      try {
+        await markJobInProgress(contract.job);
+      } catch (error) {
+        // Log but don't fail contract acceptance if job update fails
+        console.error('Failed to update job status to in-progress:', error.message);
+      }
     } else if (action === 'decline') {
       const newStatus = CONTRACT_STATUS.CANCELLED;
       
@@ -626,6 +635,14 @@ class ContractService {
     contract.endDate = new Date();
 
     await contract.save();
+
+    // Update job status to completed when contract is completed
+    try {
+      await markJobCompleted(contract.job);
+    } catch (error) {
+      // Log but don't fail contract completion if job update fails
+      console.error('Failed to update job status to completed:', error.message);
+    }
 
     // Update conversation metadata
     await Conversation.findOneAndUpdate(
@@ -859,6 +876,14 @@ class ContractService {
     contract.startDate = new Date();
     await contract.save();
 
+    // Update job status to in-progress when contract starts
+    try {
+      await markJobInProgress(contract.job);
+    } catch (error) {
+      // Log but don't fail contract start if job update fails
+      console.error('Failed to update job status to in-progress:', error.message);
+    }
+
     await createAuditLog({
       adminId: userId,
       action: 'CONTRACT_STARTED',
@@ -953,6 +978,14 @@ class ContractService {
     contract.reviewedBy = clientId;
     
     await contract.save();
+
+    // Update job status to completed when work is approved
+    try {
+      await markJobCompleted(contract.job);
+    } catch (error) {
+      // Log but don't fail work approval if job update fails
+      console.error('Failed to update job status to completed:', error.message);
+    }
 
     await createAuditLog({
       adminId: clientId,

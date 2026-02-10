@@ -7,6 +7,7 @@ import {
   deleteJob,
   getMyJobs,
   closeJob,
+  updateJobStatus,
   getJobStats,
   getRecommendedJobs,
   getRecommendedFreelancers,
@@ -278,6 +279,84 @@ router.post('/', authorize('client'), validateCreateJob, createJob);
  *         description: Job not found
  */
 router.put('/:id', authorize('client'), validateUpdateJob, updateJob);
+
+/**
+ * @swagger
+ * /api/jobs/{id}/close:
+ *   put:
+ *     summary: Close a job posting
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               closeReason:
+ *                 type: string
+ *                 enum: [hired-on-platform, hired-elsewhere, no-longer-needed, budget-issues, other]
+ *               closeNote:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Job closed successfully
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Job not found
+ */
+router.put('/:id/close', authorize('client'), closeJob);
+
+/**
+ * @swagger
+ * /api/jobs/{id}/status:
+ *   put:
+ *     summary: Update job status
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [draft, open, in-progress, completed, closed]
+ *     responses:
+ *       200:
+ *         description: Job status updated successfully
+ *       400:
+ *         description: Invalid status transition
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized
+ *       404:
+ *         description: Job not found
+ */
+router.put('/:id/status', authorize('client'), updateJobStatus);
 
 /**
  * @swagger
