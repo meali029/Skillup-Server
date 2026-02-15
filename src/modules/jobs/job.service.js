@@ -282,7 +282,13 @@ export const closeJob = async (jobId, userId, closeReason = CLOSE_REASONS.OTHER,
     status: 'pending'
   }).populate('freelancer', 'name email');
 
-  // Reject all pending proposals
+  // Get all accepted proposals for notification (but don't reject them)
+  const acceptedProposals = await Proposal.find({
+    job: jobId,
+    status: 'accepted'
+  }).populate('freelancer', 'name email');
+
+  // Reject ONLY pending proposals (not accepted ones - industry standard)
   if (pendingProposals.length > 0) {
     await Proposal.updateMany(
       { job: jobId, status: 'pending' },
@@ -306,6 +312,20 @@ export const closeJob = async (jobId, userId, closeReason = CLOSE_REASONS.OTHER,
     }
   }
 
+  // Notify freelancers with ACCEPTED proposals about job closure (but keep proposal accepted)
+  if (acceptedProposals.length > 0) {
+    for (const proposal of acceptedProposals) {
+      await notificationService.createNotification({
+        user: proposal.freelancer._id,
+        type: 'job_closed',
+        title: 'Job Closed - Action May Be Required',
+        message: `The job "${job.title}" has been closed. Your accepted proposal remains valid. Please contact the client regarding project status.`,
+        relatedJob: jobId,
+        relatedProposal: proposal._id
+      });
+    }
+  }
+
   // Update job status
   job.status = 'closed';
   job.closedAt = new Date();
@@ -322,7 +342,8 @@ export const closeJob = async (jobId, userId, closeReason = CLOSE_REASONS.OTHER,
 
   return {
     job,
-    rejectedProposalsCount: pendingProposals.length
+    rejectedProposalsCount: pendingProposals.length,
+    acceptedProposalsCount: acceptedProposals.length
   };
 };
 
