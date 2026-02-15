@@ -15,6 +15,8 @@ import {
 } from './contract.constants.js';
 import escrowService from '../payments/escrow.service.js';
 import paymentService from '../payments/payment.service.js';
+import { notifyUser } from '../notifications/notification.service.js';
+import { emitContractEvent } from '../../sockets/index.js';
 
 class ContractService {
   /**
@@ -933,6 +935,9 @@ class ContractService {
     
     await contract.save();
 
+    // Populate contract details for notification
+    await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
+
     await createAuditLog({
       adminId: freelancerId,
       action: 'WORK_SUBMITTED',
@@ -941,7 +946,29 @@ class ContractService {
       details: { deliverableCount: deliverables.length },
     });
 
-    // TODO: Send notification to client
+    // Send notification to client
+    try {
+      await notifyUser(contract.client._id || contract.client, {
+        type: 'CONTRACT_WORK_SUBMITTED',
+        title: 'Work Submitted for Review',
+        message: `${contract.freelancer.name} has submitted work for "${contract.title}". Please review the deliverables.`,
+        link: `/contracts/${contractId}`,
+        data: {
+          contractId: contractId,
+          freelancerId: freelancerId,
+          deliverableCount: deliverables.length,
+        },
+      });
+
+      // Emit real-time socket event
+      emitContractEvent(contractId, 'work_submitted', {
+        clientId: contract.client._id || contract.client,
+        freelancerId: freelancerId,
+        status: CONTRACT_STATUS.IN_REVIEW,
+      });
+    } catch (error) {
+      console.error('Failed to send work submission notification:', error);
+    }
 
     return contract;
   }
@@ -949,8 +976,11 @@ class ContractService {
   /**
    * Approve work and release payment (in_review → completed)
    * Only client can approve
+   * @param {string} contractId - Contract ID
+   * @param {string} clientId - Client user ID
+   * @param {Object} reviewData - Optional review data { rating, comment }
    */
-  async approveWork(contractId, clientId) {
+  async approveWork(contractId, clientId, reviewData = null) {
     const contract = await Contract.findById(contractId);
     if (!contract) {
       throw createAppError('Contract not found', 404);
@@ -977,7 +1007,19 @@ class ContractService {
     contract.reviewedAt = new Date();
     contract.reviewedBy = clientId;
     
+    // Add client's review of freelancer (if provided)
+    if (reviewData && reviewData.rating) {
+      contract.clientReview = {
+        rating: reviewData.rating,
+        comment: reviewData.comment || '',
+        createdAt: new Date(),
+      };
+    }
+    
     await contract.save();
+
+    // Populate for notification
+    await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
 
     // Update job status to completed when work is approved
     try {
@@ -992,10 +1034,38 @@ class ContractService {
       action: 'WORK_APPROVED',
       targetType: 'Contract',
       targetId: contractId,
-      details: { completedAt: contract.completedAt },
+      details: { 
+        completedAt: contract.completedAt,
+        rating: reviewData?.rating,
+      },
     });
 
-    // TODO: Send notification to freelancer
+    // Send notification to freelancer
+    try {
+      await notifyUser(contract.freelancer._id || contract.freelancer, {
+        type: 'CONTRACT_WORK_APPROVED',
+        title: '🎉 Work Approved!',
+        message: `${contract.client.name} has approved your work for "${contract.title}". Payment has been released!`,
+        link: `/contracts/${contractId}`,
+        data: {
+          contractId: contractId,
+          clientId: clientId,
+          amount: contract.totalAmount,
+          rating: reviewData?.rating,
+        },
+      });
+
+      // Emit real-time socket event
+      emitContractEvent(contractId, 'work_approved', {
+        clientId: clientId,
+        freelancerId: contract.freelancer._id || contract.freelancer,
+        status: CONTRACT_STATUS.COMPLETED,
+        amount: contract.totalAmount,
+      });
+    } catch (error) {
+      console.error('Failed to send work approval notification:', error);
+    }
+
     // TODO: Schedule auto-close after 14 days
 
     return contract;
@@ -1033,6 +1103,9 @@ class ContractService {
     
     await contract.save();
 
+    // Populate for notification
+    await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
+
     await createAuditLog({
       adminId: clientId,
       action: 'REVISION_REQUESTED',
@@ -1041,7 +1114,31 @@ class ContractService {
       details: { revisionCount: contract.revisionCount, feedback },
     });
 
-    // TODO: Send notification to freelancer
+    // Send notification to freelancer
+    try {
+      await notifyUser(contract.freelancer._id || contract.freelancer, {
+        type: 'CONTRACT_REVISION_REQUESTED',
+        title: 'Revision Requested',
+        message: `${contract.client.name} has requested revisions for "${contract.title}". Please review the feedback and resubmit.`,
+        link: `/contracts/${contractId}`,
+        data: {
+          contractId: contractId,
+          clientId: clientId,
+          revisionCount: contract.revisionCount,
+          feedback: feedback,
+        },
+      });
+
+      // Emit real-time socket event
+      emitContractEvent(contractId, 'revision_requested', {
+        clientId: clientId,
+        freelancerId: contract.freelancer._id || contract.freelancer,
+        status: CONTRACT_STATUS.ACTIVE,
+        revisionCount: contract.revisionCount,
+      });
+    } catch (error) {
+      console.error('Failed to send revision request notification:', error);
+    }
 
     return contract;
   }

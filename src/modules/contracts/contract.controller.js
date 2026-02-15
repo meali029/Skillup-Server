@@ -343,8 +343,15 @@ export const submitWork = asyncHandler(async (req, res) => {
 export const approveWork = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
+  const { rating, comment } = req.body;
 
-  const contract = await contractService.approveWork(id, userId);
+  // Validate rating if provided
+  if (rating !== undefined && (rating < 1 || rating > 5)) {
+    throw AppError('Rating must be between 1 and 5', 400);
+  }
+
+  const reviewData = (rating !== undefined && rating !== null) ? { rating, comment } : null;
+  const contract = await contractService.approveWork(id, userId, reviewData);
 
   successResponse(res, { contract }, 'Work approved and payment released successfully', 200);
 });
