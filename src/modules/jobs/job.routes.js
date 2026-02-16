@@ -100,6 +100,37 @@ const router = express.Router();
  */
 router.get('/', validateJobQuery, getAllJobs);
 
+/**
+ * @swagger
+ * /api/jobs/{id}:
+ *   get:
+ *     summary: Get a job by ID
+ *     tags: [Jobs]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Job ID
+ *     responses:
+ *       200:
+ *         description: Job details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 job:
+ *                   $ref: '#/components/schemas/Job'
+ *       404:
+ *         description: Job not found
+ */
+router.get('/:id', getJobById);
+
+// Require authentication for all routes below this line
 router.use(authenticate);
 
 /**
@@ -409,37 +440,6 @@ router.delete('/:id', authorize('client'), deleteJob);
  *         description: Job not found
  */
 router.patch('/:id/close', authorize('client'), closeJob);
-
-/**
- * @swagger
- * /api/jobs/{id}:
- *   get:
- *     summary: Get job by ID
- *     tags: [Jobs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Job details
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 job:
- *                   $ref: '#/components/schemas/Job'
- *       404:
- *         description: Job not found
- */
-router.get('/:id', getJobById);
 
 /**
  * @swagger

@@ -36,14 +36,25 @@ export const formatUser = (user) => {
     formattedUser.website = user.website;
     // Include rating for freelancers
     formattedUser.rating = user.rating || { average: 0, count: 0 };
+    // Include freelancer statistics
+    formattedUser.appliedJobsCount = user.appliedJobsCount || 0;
+    formattedUser.activeProposalsCount = user.activeProposalsCount || 0;
+    formattedUser.completedJobsCount = user.completedJobsCount || 0;
+    formattedUser.totalEarnings = user.totalEarnings || 0;
   }
 
   if (user.role === 'client') {
     formattedUser.companyName = user.companyName;
     formattedUser.companySize = user.companySize;
     formattedUser.industry = user.industry;
+    formattedUser.website = user.website;
     // Include rating for clients
     formattedUser.rating = user.rating || { average: 0, count: 0 };
+    // Include client statistics
+    formattedUser.postedJobsCount = user.postedJobsCount || 0;
+    formattedUser.activeJobsCount = user.activeJobsCount || 0;
+    formattedUser.completedJobsCount = user.completedJobsCount || 0;
+    formattedUser.totalSpent = user.totalSpent || 0;
   }
 
   formattedUser.createdAt = user.createdAt;

@@ -1111,6 +1111,34 @@ class ContractService {
       console.error('Failed to update job status to completed:', error.message);
     }
 
+    // Update user statistics for both client and freelancer
+    try {
+      const amountPaid = paymentDetails?.grossAmount || contract.totalAmount || contract.agreedAmount || 0;
+      
+      // Update client statistics
+      await User.findByIdAndUpdate(clientId, {
+        $inc: { 
+          completedJobsCount: 1,
+          totalSpent: amountPaid
+        }
+      });
+      console.log('[CONTRACT][APPROVE_WORK] Client statistics updated - completedJobsCount +1, totalSpent +', amountPaid);
+
+      // Update freelancer statistics
+      const freelancerId = contract.freelancer._id || contract.freelancer;
+      const freelancerEarnings = paymentDetails?.netAmount || (amountPaid * 0.95);
+      await User.findByIdAndUpdate(freelancerId, {
+        $inc: { 
+          completedJobsCount: 1,
+          totalEarnings: freelancerEarnings
+        }
+      });
+      console.log('[CONTRACT][APPROVE_WORK] Freelancer statistics updated - completedJobsCount +1, totalEarnings +', freelancerEarnings);
+    } catch (statsError) {
+      // Log but don't fail the approval if stats update fails
+      console.error('[CONTRACT][APPROVE_WORK] Failed to update user statistics:', statsError.message);
+    }
+
     await createAuditLog({
       adminId: clientId,
       action: 'WORK_APPROVED',

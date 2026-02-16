@@ -194,6 +194,14 @@ export const createProposal = async (userId, proposalData) => {
     $inc: { proposalsCount: 1 }
   });
 
+  // Update freelancer's proposal statistics
+  await User.findByIdAndUpdate(userId, {
+    $inc: { 
+      appliedJobsCount: 1,
+      activeProposalsCount: 1
+    }
+  });
+
   // Notify job owner (client) about new proposal
   try {
     const clientId = job.client;
@@ -320,6 +328,11 @@ export const withdrawProposal = async (proposalId, userId) => {
   // Decrement job's proposalsCount
   await Job.findByIdAndUpdate(proposal.jobId, {
     $inc: { proposalsCount: -1 }
+  });
+
+  // Decrement freelancer's activeProposalsCount
+  await User.findByIdAndUpdate(userId, {
+    $inc: { activeProposalsCount: -1 }
   });
 
   return { message: "Proposal withdrawn successfully" };
@@ -530,6 +543,14 @@ export const acceptProposal = async (proposalId, clientId) => {
   await proposal.save();
 
   // Reject all other pending proposals for this job
+  const rejectedProposals = await Proposal.find(
+    { 
+      jobId: proposal.jobId._id, 
+      _id: { $ne: proposalId },
+      status: "pending" 
+    }
+  );
+
   await Proposal.updateMany(
     { 
       jobId: proposal.jobId._id, 
@@ -537,6 +558,15 @@ export const acceptProposal = async (proposalId, clientId) => {
       status: "pending" 
     },
     { status: "rejected" }
+  );
+
+  // Decrement activeProposalsCount for all rejected freelancers and the accepted one
+  const freelancerIds = rejectedProposals.map(p => p.freelancerId);
+  freelancerIds.push(proposal.freelancerId); // Add the accepted freelancer
+  
+  await User.updateMany(
+    { _id: { $in: freelancerIds } },
+    { $inc: { activeProposalsCount: -1 } }
   );
 
   const updatedProposal = await Proposal.findById(proposalId)
@@ -587,6 +617,11 @@ export const rejectProposal = async (proposalId, clientId, reason = null) => {
     proposal.rejectionReason = reason;
   }
   await proposal.save();
+
+  // Decrement freelancer's activeProposalsCount
+  await User.findByIdAndUpdate(proposal.freelancerId, {
+    $inc: { activeProposalsCount: -1 }
+  });
 
   // Notify freelancer about rejection
   try {
