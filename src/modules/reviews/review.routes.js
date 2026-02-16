@@ -59,4 +59,10 @@ router.post(
   reviewController.submitReview
 );
 
+// Recalculate user rating (utility endpoint)
+router.post(
+  '/users/:userId/recalculate',
+  reviewController.recalculateRating
+);
+
 export default router;

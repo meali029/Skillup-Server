@@ -1042,8 +1042,26 @@ class ContractService {
     // Release escrow payment (with 5% platform fee!)
     let paymentDetails = null;
     if (contract.initialEscrowId) {
-      const result = await escrowService.releaseEscrow(contract.initialEscrowId.toString(), clientId);
-      paymentDetails = result.paymentDetails;
+      // Check if escrow is already released (prevents trying to release twice)
+      const Escrow = (await import('../../models/Escrow.js')).default;
+      const escrow = await Escrow.findById(contract.initialEscrowId);
+      
+      if (escrow && escrow.status === 'RELEASED') {
+        console.log('[CONTRACT][APPROVE_WORK] Escrow already released, using stored payment details');
+        // Use stored payment details if escrow already released
+        paymentDetails = contract.paymentDetails || {
+          grossAmount: contract.totalAmount,
+          platformFee: contract.totalAmount * 0.05,
+          netAmount: contract.totalAmount * 0.95,
+          feePercentage: 5,
+        };
+      } else if (escrow && ['FUNDED', 'LOCKED'].includes(escrow.status)) {
+        // Only release if in FUNDED or LOCKED status
+        const result = await escrowService.releaseEscrow(contract.initialEscrowId.toString(), clientId);
+        paymentDetails = result.paymentDetails;
+      } else {
+        console.warn('[CONTRACT][APPROVE_WORK] Escrow not found or in invalid status:', escrow?.status);
+      }
     }
 
     // Update contract
@@ -1065,14 +1083,22 @@ class ContractService {
     
     // Add client's review of freelancer (if provided)
     if (reviewData && reviewData.rating) {
+      console.log('[CONTRACT][APPROVE_WORK] Adding client review:', reviewData);
       contract.clientReview = {
         rating: reviewData.rating,
         comment: reviewData.comment || '',
         createdAt: new Date(),
       };
+      
+      // Recalculate freelancer's rating after adding review
+      // Note: ReviewService is exported as a singleton instance, not a class
+      const reviewService = (await import('../reviews/review.service.js')).default;
+      await reviewService.recalculateUserRating(contract.freelancer.toString());
+      console.log('[CONTRACT][APPROVE_WORK] Freelancer rating recalculated');
     }
     
     await contract.save();
+    console.log('[CONTRACT][APPROVE_WORK] Contract saved with status:', contract.status);
 
     // Populate for notification
     await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);

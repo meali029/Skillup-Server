@@ -121,3 +121,20 @@ export const getMyReviews = asyncHandler(async (req, res) => {
     { user: result.user }
   );
 });
+
+/**
+ * @desc    Recalculate user rating (utility endpoint)
+ * @route   POST /api/reviews/users/:userId/recalculate
+ * @access  Private
+ */
+export const recalculateRating = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  const result = await reviewService.recalculateUserRating(userId);
+
+  successResponse(
+    res,
+    result,
+    'Rating recalculated successfully'
+  );
+});
