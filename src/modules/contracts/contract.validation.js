@@ -167,12 +167,6 @@ export const updateMilestone = {
       .messages({
         'date.min': 'Milestone due date must be in the future',
       }),
-    status: Joi.string()
-      .valid(...Object.values(MILESTONE_STATUS))
-      .optional()
-      .messages({
-        'any.only': `Milestone status must be one of: ${Object.values(MILESTONE_STATUS).join(', ')}`,
-      }),
     notes: Joi.string().optional().trim().max(500)
       .messages({
         'string.max': 'Milestone notes cannot exceed 500 characters',

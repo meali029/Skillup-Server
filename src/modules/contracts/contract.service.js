@@ -1,6 +1,7 @@
 import Contract from '../../models/Contract.js';
 import Proposal from '../../models/Proposal.js';
 import Job from '../../models/Job.js';
+import User from '../../models/User.js';
 import Conversation from '../../models/Conversation.js';
 import Escrow from '../../models/Escrow.js';
 import { createAppError } from '../../core/errors/index.js';
@@ -13,10 +14,12 @@ import {
   MILESTONE_EDITABLE_STATUSES,
   TERMINAL_STATUSES,
   isStatusTransitionAllowed,
+  isMilestoneTransitionAllowed,
 } from './contract.constants.js';
 import escrowService from '../payments/escrow.service.js';
 import paymentService from '../payments/payment.service.js';
 import walletService from '../payments/wallet.service.js';
+import paymentModeService from '../../services/paymentGateways/paymentMode.service.js';
 import { notifyUser } from '../notifications/notification.service.js';
 import { emitContractEvent } from '../../sockets/index.js';
 
@@ -576,11 +579,11 @@ class ContractService {
   }
 
   /**
-   * Update milestone
+   * Update milestone (metadata only - NOT status)
    * Business Rules:
    * 1. Cannot update milestones in terminal contract states
-   * 2. Only authorized users can update milestones
-   * 3. completedAt is auto-set when status changes to completed
+   * 2. Only client can update milestone metadata
+   * 3. Status changes must go through dedicated workflow methods
    */
   async updateMilestone(contractId, milestoneId, userId, updateData) {
     const contract = await Contract.findById(contractId);
@@ -592,6 +595,11 @@ class ContractService {
     // Business Rule: Authorization - only contract parties can modify
     if (!contract.canBeModifiedBy(userId)) {
       throw createAppError('You do not have access to this contract', 403);
+    }
+
+    // Business Rule: Only client can update milestone metadata
+    if (!contract.isClient(userId)) {
+      throw createAppError('Only the client can update milestone details', 403);
     }
 
     // Business Rule: Cannot modify milestones in terminal states
@@ -607,33 +615,397 @@ class ContractService {
       throw createAppError('Milestone not found', 404);
     }
 
+    // Business Rule: Cannot update milestones that are past pending (already started)
+    if (milestone.status !== MILESTONE_STATUS.PENDING) {
+      throw createAppError('Can only edit milestones that have not been started yet', 400);
+    }
+
+    // Block status changes via this endpoint
+    if (updateData.status) {
+      throw createAppError('Cannot change milestone status via update. Use dedicated workflow endpoints (start, submit, approve, request-revision).', 400);
+    }
+
     // Business Rule: Validate dueDate if being updated
     if (updateData.dueDate) {
       const newDueDate = new Date(updateData.dueDate);
       
-      // Ensure dueDate is not in the past
       if (newDueDate < new Date()) {
         throw createAppError('Milestone due date cannot be in the past', 400);
       }
       
-      // If contract has a deadline, milestone due date should not exceed it
       if (contract.deadline && newDueDate > new Date(contract.deadline)) {
         throw createAppError('Milestone due date cannot exceed contract deadline', 400);
       }
     }
 
-    // Update milestone fields
-    Object.keys(updateData).forEach((key) => {
-      milestone[key] = updateData[key];
+    // Only allow safe fields to be updated
+    const allowedFields = ['title', 'description', 'amount', 'dueDate', 'notes'];
+    allowedFields.forEach((key) => {
+      if (updateData[key] !== undefined) {
+        milestone[key] = updateData[key];
+      }
     });
 
-    // Business Rule: Auto-set completedAt when marking as completed
-    // This is also handled in the model pre-save hook but set here for immediate effect
-    if (updateData.status === MILESTONE_STATUS.COMPLETED && !milestone.completedAt) {
-      milestone.completedAt = new Date();
+    await contract.save();
+
+    return contract;
+  }
+
+  /**
+   * Start milestone (pending → in_progress)
+   * Only freelancer can start a milestone
+   * Enforces sequential order: only the next pending milestone can be started
+   */
+  async startMilestone(contractId, milestoneId, freelancerId) {
+    console.log('[START_MILESTONE] Request:', { contractId, milestoneId, freelancerId });
+    
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
     }
 
+    console.log('[START_MILESTONE] Contract status:', contract.status);
+    console.log('[START_MILESTONE] Contract freelancer:', contract.freelancer);
+    console.log('[START_MILESTONE] Is freelancer?', contract.isFreelancer(freelancerId));
+
+    if (!contract.isFreelancer(freelancerId)) {
+      throw createAppError('Only the freelancer can start milestones', 403);
+    }
+
+    if (contract.status !== CONTRACT_STATUS.ACTIVE) {
+      throw createAppError(`Contract must be active to start milestones. Current status: ${contract.status}`, 400);
+    }
+
+    const milestone = contract.milestones.id(milestoneId);
+    if (!milestone) {
+      throw createAppError('Milestone not found', 404);
+    }
+
+    console.log('[START_MILESTONE] Milestone status:', milestone.status);
+
+    // Allow transition from pending or revision_requested
+    if (milestone.status !== MILESTONE_STATUS.PENDING && milestone.status !== MILESTONE_STATUS.REVISION_REQUESTED) {
+      throw createAppError(`Cannot start milestone in ${milestone.status} status`, 400);
+    }
+
+    // Verify escrow is funded before freelancer can start
+    const escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
+    if (!escrow || !['FUNDED', 'LOCKED'].includes(escrow.status)) {
+      console.log('[START_MILESTONE] Blocked: Escrow not funded. Status:', escrow?.status || 'NOT_CREATED');
+      throw createAppError(
+        'This milestone has not been funded yet. The client must fund the escrow before you can start working.',
+        400
+      );
+    }
+    console.log('[START_MILESTONE] Escrow verified:', escrow._id, 'Status:', escrow.status);
+
+    // Sequential enforcement: no other milestone should be in_progress or in_review
+    const activeOrReviewMilestone = contract.milestones.find(
+      (m) => m._id.toString() !== milestoneId && 
+        (m.status === MILESTONE_STATUS.IN_PROGRESS || m.status === MILESTONE_STATUS.IN_REVIEW)
+    );
+    if (activeOrReviewMilestone) {
+      console.log('[START_MILESTONE] Blocked: Active milestone found:', activeOrReviewMilestone._id);
+      throw createAppError('Another milestone is currently in progress or under review. Complete it first.', 400);
+    }
+
+    milestone.status = MILESTONE_STATUS.IN_PROGRESS;
     await contract.save();
+
+    console.log('[START_MILESTONE] SUCCESS: Milestone started:', milestoneId);
+
+    return contract;
+  }
+
+  /**
+   * Submit milestone for review (in_progress → in_review)
+   * Only freelancer can submit a milestone
+   * Deliverables are attached to the milestone
+   */
+  async submitMilestone(contractId, milestoneId, freelancerId, deliverables = []) {
+    console.log('[SUBMIT_MILESTONE] Request:', { contractId, milestoneId, freelancerId, deliverables: deliverables.length });
+    
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    console.log('[SUBMIT_MILESTONE] Contract status:', contract.status);
+
+    if (!contract.isFreelancer(freelancerId)) {
+      throw createAppError('Only the freelancer can submit milestone work', 403);
+    }
+
+    if (contract.status !== CONTRACT_STATUS.ACTIVE) {
+      throw createAppError('Contract must be active to submit milestones', 400);
+    }
+
+    const milestone = contract.milestones.id(milestoneId);
+    if (!milestone) {
+      throw createAppError('Milestone not found', 404);
+    }
+
+    console.log('[SUBMIT_MILESTONE] Milestone status:', milestone.status);
+
+    if (milestone.status !== MILESTONE_STATUS.IN_PROGRESS) {
+      throw createAppError(`Cannot submit milestone in ${milestone.status} status. Must be in progress.`, 400);
+    }
+
+    // Add deliverables to milestone
+    if (deliverables && deliverables.length > 0) {
+      const newDeliverables = deliverables.map(d => ({
+        title: d.title,
+        description: d.description || '',
+        fileUrl: d.fileUrl || '',
+        fileName: d.fileName || '',
+        fileType: d.fileType || '',
+        fileSize: d.fileSize || 0,
+        submittedAt: new Date(),
+      }));
+      milestone.deliverables = newDeliverables;
+    }
+
+    milestone.status = MILESTONE_STATUS.IN_REVIEW;
+    milestone.submittedAt = new Date();
+    milestone.revisionNote = undefined; // Clear any previous revision note
+    await contract.save();
+
+    // Populate and notify
+    await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
+
+    try {
+      await notifyUser(contract.client._id || contract.client, {
+        type: 'MILESTONE_SUBMITTED',
+        title: 'Milestone Submitted for Review',
+        message: `${contract.freelancer.name} has submitted "${milestone.title}" for review on "${contract.title}".`,
+        link: `/contracts/${contractId}`,
+        data: { contractId, milestoneId, milestoneTitle: milestone.title },
+      });
+
+      emitContractEvent(contractId, 'milestone_submitted', {
+        clientId: contract.client._id || contract.client,
+        freelancerId,
+        milestoneId,
+        milestoneTitle: milestone.title,
+      });
+    } catch (error) {
+      console.error('Failed to send milestone submission notification:', error);
+    }
+
+    console.log('[CONTRACT][SUBMIT_MILESTONE] Milestone submitted for review:', milestoneId);
+
+    return contract;
+  }
+
+  /**
+   * Approve milestone work and release payment (in_review → completed)
+   * Only client can approve
+   * Releases the per-milestone escrow
+   * Auto-completes contract if all milestones are done
+   */
+  async approveMilestoneWork(contractId, milestoneId, clientId) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    if (!contract.isClient(clientId)) {
+      throw createAppError('Only the client can approve milestone work', 403);
+    }
+
+    const milestone = contract.milestones.id(milestoneId);
+    if (!milestone) {
+      throw createAppError('Milestone not found', 404);
+    }
+
+    if (milestone.status !== MILESTONE_STATUS.IN_REVIEW) {
+      throw createAppError(`Cannot approve milestone in ${milestone.status} status. Must be in review.`, 400);
+    }
+
+    // Release per-milestone escrow
+    let paymentDetails = null;
+    try {
+      const escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
+      if (escrow && ['FUNDED', 'LOCKED'].includes(escrow.status)) {
+        const result = await escrowService.releaseEscrow(escrow._id.toString(), clientId);
+        paymentDetails = result.paymentDetails;
+      } else if (escrow && escrow.status === 'RELEASED') {
+        console.log('[CONTRACT][APPROVE_MILESTONE] Escrow already released for milestone:', milestoneId);
+        paymentDetails = {
+          grossAmount: milestone.amount,
+          platformFee: milestone.amount * 0.05,
+          netAmount: milestone.amount * 0.95,
+          feePercentage: 5,
+        };
+      } else {
+        throw createAppError(
+          `Cannot approve milestone without funded escrow. Milestone must be funded before approval. Current escrow status: ${escrow?.status || 'NOT_CREATED'}`,
+          400
+        );
+      }
+    } catch (error) {
+      // If it's already an AppError, re-throw it
+      if (error.statusCode) {
+        throw error;
+      }
+      console.error('[CONTRACT][APPROVE_MILESTONE] Escrow release failed:', error.message);
+      throw createAppError('Failed to release escrow payment. Please contact support.', 500);
+    }
+
+    // Update milestone status
+    milestone.status = MILESTONE_STATUS.COMPLETED;
+    milestone.completedAt = new Date();
+    milestone.approvedAt = new Date();
+
+    await contract.save();
+
+    // Populate for notification
+    await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
+
+    // Notify freelancer
+    try {
+      const paymentMessage = paymentDetails
+        ? `Payment of PKR ${paymentDetails.netAmount?.toLocaleString()} released for milestone "${milestone.title}".`
+        : `Milestone "${milestone.title}" approved!`;
+
+      await notifyUser(contract.freelancer._id || contract.freelancer, {
+        type: 'MILESTONE_APPROVED',
+        title: 'Milestone Approved!',
+        message: `${contract.client.name} approved "${milestone.title}" on "${contract.title}". ${paymentMessage}`,
+        link: `/contracts/${contractId}`,
+        data: { contractId, milestoneId, milestoneTitle: milestone.title, paymentDetails },
+      });
+
+      emitContractEvent(contractId, 'milestone_approved', {
+        clientId,
+        freelancerId: contract.freelancer._id || contract.freelancer,
+        milestoneId,
+        milestoneTitle: milestone.title,
+        paymentDetails,
+      });
+    } catch (error) {
+      console.error('Failed to send milestone approval notification:', error);
+    }
+
+    await createAuditLog({
+      adminId: clientId,
+      action: 'MILESTONE_APPROVED',
+      targetType: 'Contract',
+      targetId: contractId,
+      details: { milestoneId, milestoneTitle: milestone.title, paymentDetails },
+    });
+
+    console.log('[CONTRACT][APPROVE_MILESTONE] Milestone approved:', milestoneId);
+
+    // Check if ALL milestones are now completed → auto-complete contract
+    const allCompleted = contract.milestones.every(m => m.status === MILESTONE_STATUS.COMPLETED);
+    if (allCompleted && contract.milestones.length > 0) {
+      console.log('[CONTRACT][APPROVE_MILESTONE] All milestones completed! Auto-completing contract...');
+      
+      contract.status = CONTRACT_STATUS.COMPLETED;
+      contract.completedAt = new Date();
+      contract.reviewedAt = new Date();
+      contract.reviewedBy = clientId;
+      await contract.save();
+
+      // Update job status
+      try {
+        await markJobCompleted(contract.job);
+      } catch (error) {
+        console.error('Failed to update job status to completed:', error.message);
+      }
+
+      // Update user statistics
+      try {
+        const totalContractAmount = contract.milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
+        
+        await User.findByIdAndUpdate(clientId, {
+          $inc: { completedJobsCount: 1, totalSpent: totalContractAmount }
+        });
+
+        const freelancerId = contract.freelancer._id || contract.freelancer;
+        const freelancerEarnings = totalContractAmount * 0.95;
+        await User.findByIdAndUpdate(freelancerId, {
+          $inc: { completedJobsCount: 1, totalEarnings: freelancerEarnings }
+        });
+        console.log('[CONTRACT][APPROVE_MILESTONE] User statistics updated');
+      } catch (statsError) {
+        console.error('[CONTRACT][APPROVE_MILESTONE] Failed to update user stats:', statsError.message);
+      }
+
+      // Notify both parties about contract completion
+      try {
+        await notifyUser(contract.freelancer._id || contract.freelancer, {
+          type: 'CONTRACT_COMPLETED',
+          title: 'Contract Completed!',
+          message: `All milestones on "${contract.title}" are complete. The contract has been auto-completed.`,
+          link: `/contracts/${contractId}`,
+          data: { contractId },
+        });
+      } catch (error) {
+        console.error('Failed to send contract completion notification:', error);
+      }
+    }
+
+    return contract;
+  }
+
+  /**
+   * Request revision on a milestone (in_review → revision_requested)
+   * Only client can request revisions
+   */
+  async requestMilestoneRevision(contractId, milestoneId, clientId, feedback) {
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      throw createAppError('Contract not found', 404);
+    }
+
+    if (!contract.isClient(clientId)) {
+      throw createAppError('Only the client can request milestone revisions', 403);
+    }
+
+    const milestone = contract.milestones.id(milestoneId);
+    if (!milestone) {
+      throw createAppError('Milestone not found', 404);
+    }
+
+    if (milestone.status !== MILESTONE_STATUS.IN_REVIEW) {
+      throw createAppError(`Cannot request revision for milestone in ${milestone.status} status`, 400);
+    }
+
+    if (!feedback || feedback.trim().length < 10) {
+      throw createAppError('Revision feedback must be at least 10 characters', 400);
+    }
+
+    milestone.status = MILESTONE_STATUS.REVISION_REQUESTED;
+    milestone.revisionNote = feedback.trim();
+    milestone.deliverables = []; // Clear deliverables for resubmission
+    await contract.save();
+
+    // Populate and notify
+    await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
+
+    try {
+      await notifyUser(contract.freelancer._id || contract.freelancer, {
+        type: 'MILESTONE_REVISION_REQUESTED',
+        title: 'Revision Requested',
+        message: `${contract.client.name} has requested revisions on "${milestone.title}". Feedback: "${feedback.trim().substring(0, 100)}..."`,
+        link: `/contracts/${contractId}`,
+        data: { contractId, milestoneId, milestoneTitle: milestone.title, feedback: feedback.trim() },
+      });
+
+      emitContractEvent(contractId, 'milestone_revision_requested', {
+        clientId,
+        freelancerId: contract.freelancer._id || contract.freelancer,
+        milestoneId,
+        milestoneTitle: milestone.title,
+        feedback: feedback.trim(),
+      });
+    } catch (error) {
+      console.error('Failed to send milestone revision notification:', error);
+    }
+
+    console.log('[CONTRACT][REVISION_MILESTONE] Revision requested for milestone:', milestoneId);
 
     return contract;
   }
@@ -824,8 +1196,53 @@ class ContractService {
     if (!escrow) {
       // Create escrow if it doesn't exist
       escrow = await escrowService.createEscrow(contractId, milestoneId, milestone.amount);
+      
+      // Store escrow ID on milestone
+      milestone.escrowId = escrow._id;
+      await contract.save();
+      console.log('[CONTRACT][FUND_ESCROW] Stored escrowId on milestone:', milestoneId);
     }
 
+    // Check if payment method is WALLET
+    if (paymentData.paymentMethod === 'WALLET') {
+      // In test mode, auto-credit wallet if insufficient balance
+      const isTestMode = await paymentModeService.isTestingMode();
+      const wallet = await walletService.getWallet(userId);
+      
+      if (wallet.availableBalance < milestone.amount) {
+        if (isTestMode) {
+          // Auto-credit test funds
+          const topUpAmount = milestone.amount - wallet.availableBalance;
+          await walletService.creditWallet(userId, topUpAmount, {
+            description: `[TEST MODE] Auto-funded PKR ${topUpAmount} for milestone escrow`,
+            type: 'DEPOSIT',
+          });
+          console.log(`[CONTRACT][FUND_ESCROW][TEST] Auto-credited PKR ${topUpAmount} to wallet for user:`, userId);
+        } else {
+          throw createAppError(
+            `Insufficient wallet balance. Available: PKR ${wallet.availableBalance}, Required: PKR ${milestone.amount}`,
+            400
+          );
+        }
+      }
+
+      // Fund escrow directly from wallet (locks funds)
+      await escrowService.fundEscrow(escrow._id.toString(), {
+        paymentMethod: 'WALLET',
+      });
+
+      console.log('[CONTRACT][FUND_ESCROW] Funded milestone from wallet:', milestoneId);
+
+      // Return success without payment URL
+      return {
+        escrowId: escrow._id.toString(),
+        paymentMethod: 'WALLET',
+        success: true,
+        message: `Milestone funded successfully from wallet. PKR ${milestone.amount} locked in escrow.`,
+      };
+    }
+
+    // For external payment methods (JazzCash, EasyPaisa, Bank Transfer)
     // Initialize payment with escrow and contract linking
     const paymentResult = await paymentService.initializeDeposit(
       userId,
@@ -851,44 +1268,14 @@ class ContractService {
   }
 
   /**
-   * Approve milestone and release escrow
+   * Approve milestone and release escrow (legacy - delegates to approveMilestoneWork)
    * Business Rules:
    * 1. Only client can approve milestone
-   * 2. Milestone must be completed
+   * 2. Milestone must be in_review
    * 3. Escrow must be funded/locked
    */
   async approveMilestone(contractId, milestoneId, userId) {
-    const contract = await Contract.findById(contractId);
-    if (!contract) {
-      throw createAppError('Contract not found', 404);
-    }
-
-    // Verify user is client
-    if (!contract.isClient(userId)) {
-      throw createAppError('Only the client can approve milestone', 403);
-    }
-
-    // Verify milestone exists
-    const milestone = contract.milestones.id(milestoneId);
-    if (!milestone) {
-      throw createAppError('Milestone not found', 404);
-    }
-
-    // Verify milestone is completed
-    if (milestone.status !== MILESTONE_STATUS.COMPLETED) {
-      throw createAppError('Milestone must be completed before approval', 400);
-    }
-
-    // Get escrow
-    const escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
-    if (!escrow) {
-      throw createAppError('Escrow not found for this milestone', 404);
-    }
-
-    // Release escrow
-    await escrowService.releaseEscrow(escrow._id.toString(), userId);
-
-    return contract;
+    return this.approveMilestoneWork(contractId, milestoneId, userId);
   }
 
   /**

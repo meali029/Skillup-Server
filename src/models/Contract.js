@@ -34,9 +34,50 @@ const milestoneSchema = new mongoose.Schema(
     completedAt: {
       type: Date,
     },
+    submittedAt: {
+      type: Date,
+    },
+    approvedAt: {
+      type: Date,
+    },
+    revisionNote: {
+      type: String,
+      trim: true,
+    },
     notes: {
       type: String,
     },
+    escrowId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Escrow',
+    },
+    deliverables: [{
+      title: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      description: {
+        type: String,
+        trim: true,
+      },
+      fileUrl: {
+        type: String,
+      },
+      fileName: {
+        type: String,
+      },
+      fileType: {
+        type: String,
+      },
+      fileSize: {
+        type: Number,
+      },
+      submittedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
   },
   { timestamps: true }
 );

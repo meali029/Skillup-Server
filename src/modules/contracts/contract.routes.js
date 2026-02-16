@@ -472,7 +472,23 @@ router.post(
 router.post(
   '/:id/milestones/:milestoneId/approve',
   validate(contractValidation.approveMilestone),
-  contractController.approveMilestone
+  contractController.approveMilestoneWork
+);
+
+// Milestone workflow routes
+router.post(
+  '/:id/milestones/:milestoneId/start',
+  contractController.startMilestone
+);
+
+router.post(
+  '/:id/milestones/:milestoneId/submit',
+  contractController.submitMilestone
+);
+
+router.post(
+  '/:id/milestones/:milestoneId/request-revision',
+  contractController.requestMilestoneRevision
 );
 
 /**

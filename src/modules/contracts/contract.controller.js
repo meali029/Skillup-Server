@@ -384,3 +384,61 @@ export const closeContract = asyncHandler(async (req, res) => {
 
   successResponse(res, { contract }, 'Contract closed successfully', 200);
 });
+
+/**
+ * @desc    Start milestone (pending → in_progress)
+ * @route   POST /api/contracts/:id/milestones/:milestoneId/start
+ * @access  Private (Freelancer only)
+ */
+export const startMilestone = asyncHandler(async (req, res) => {
+  const { id: contractId, milestoneId } = req.params;
+  const userId = req.user.id;
+
+  const contract = await contractService.startMilestone(contractId, milestoneId, userId);
+
+  successResponse(res, { contract }, 'Milestone started successfully', 200);
+});
+
+/**
+ * @desc    Submit milestone for review (in_progress → in_review)
+ * @route   POST /api/contracts/:id/milestones/:milestoneId/submit
+ * @access  Private (Freelancer only)
+ */
+export const submitMilestone = asyncHandler(async (req, res) => {
+  const { id: contractId, milestoneId } = req.params;
+  const userId = req.user.id;
+  const { deliverables } = req.body;
+
+  const contract = await contractService.submitMilestone(contractId, milestoneId, userId, deliverables);
+
+  successResponse(res, { contract }, 'Milestone submitted for review', 200);
+});
+
+/**
+ * @desc    Approve milestone work and release payment (in_review → completed)
+ * @route   POST /api/contracts/:id/milestones/:milestoneId/approve
+ * @access  Private (Client only)
+ */
+export const approveMilestoneWork = asyncHandler(async (req, res) => {
+  const { id: contractId, milestoneId } = req.params;
+  const userId = req.user.id;
+
+  const contract = await contractService.approveMilestoneWork(contractId, milestoneId, userId);
+
+  successResponse(res, { contract }, 'Milestone approved and payment released', 200);
+});
+
+/**
+ * @desc    Request revision on a milestone (in_review → revision_requested)
+ * @route   POST /api/contracts/:id/milestones/:milestoneId/request-revision
+ * @access  Private (Client only)
+ */
+export const requestMilestoneRevision = asyncHandler(async (req, res) => {
+  const { id: contractId, milestoneId } = req.params;
+  const userId = req.user.id;
+  const { feedback } = req.body;
+
+  const contract = await contractService.requestMilestoneRevision(contractId, milestoneId, userId, feedback);
+
+  successResponse(res, { contract }, 'Milestone revision requested', 200);
+});

@@ -175,7 +175,7 @@ class EscrowService {
       throw createAppError(`Cannot release escrow in ${escrow.status} status`, 400);
     }
 
-    // Verify milestone is completed (for milestone-based escrows)
+    // Verify milestone is in valid state for release (for milestone-based escrows)
     if (escrow.contractId && escrow.milestoneId !== 'TOTAL') {
       const contract = await Contract.findById(escrow.contractId);
       if (!contract) {
@@ -187,8 +187,9 @@ class EscrowService {
         throw createAppError('Milestone not found', 404);
       }
 
-      if (milestone.status !== 'completed') {
-        throw createAppError('Milestone must be completed before releasing escrow', 400);
+      // Allow release when milestone is in_review (being approved) or already completed
+      if (milestone.status !== 'in_review' && milestone.status !== 'completed') {
+        throw createAppError(`Milestone must be in review or completed before releasing escrow. Current status: ${milestone.status}`, 400);
       }
     }
 

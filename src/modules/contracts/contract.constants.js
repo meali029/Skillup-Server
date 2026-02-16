@@ -20,8 +20,31 @@ export const CONTRACT_STATUS = {
 export const MILESTONE_STATUS = {
   PENDING: 'pending',
   IN_PROGRESS: 'in_progress',
+  IN_REVIEW: 'in_review',
+  REVISION_REQUESTED: 'revision_requested',
   COMPLETED: 'completed',
   DISPUTED: 'disputed',
+};
+
+// Milestone status transition rules
+export const ALLOWED_MILESTONE_TRANSITIONS = {
+  [MILESTONE_STATUS.PENDING]: [MILESTONE_STATUS.IN_PROGRESS],
+  [MILESTONE_STATUS.IN_PROGRESS]: [MILESTONE_STATUS.IN_REVIEW],
+  [MILESTONE_STATUS.IN_REVIEW]: [
+    MILESTONE_STATUS.COMPLETED,
+    MILESTONE_STATUS.REVISION_REQUESTED,
+    MILESTONE_STATUS.DISPUTED,
+  ],
+  [MILESTONE_STATUS.REVISION_REQUESTED]: [MILESTONE_STATUS.IN_PROGRESS],
+  [MILESTONE_STATUS.COMPLETED]: [], // Terminal
+  [MILESTONE_STATUS.DISPUTED]: [MILESTONE_STATUS.IN_PROGRESS, MILESTONE_STATUS.COMPLETED],
+};
+
+// Helper function to check if milestone status transition is allowed
+export const isMilestoneTransitionAllowed = (currentStatus, newStatus) => {
+  if (currentStatus === newStatus) return true;
+  const allowed = ALLOWED_MILESTONE_TRANSITIONS[currentStatus] || [];
+  return allowed.includes(newStatus);
 };
 
 // Payment type enumeration
