@@ -2,9 +2,9 @@ import paymentService from './payment.service.js';
 import walletService from './wallet.service.js';
 import withdrawalService from './withdrawal.service.js';
 import escrowService from './escrow.service.js';
+import paymentModeService from '../../services/paymentGateways/paymentMode.service.js';
 import { asyncHandler } from '../../core/utils/index.js';
 import { createAppError } from '../../core/errors/index.js';
-import { createAuditLog } from '../../core/utils/auditLogger.js';
 
 /**
  * Payment Controller
@@ -37,17 +37,8 @@ export const initializeDeposit = asyncHandler(async (req, res) => {
       Object.keys(cleanedCustomerData).length > 0 ? cleanedCustomerData : {}
     );
 
-    // Audit log
-    await createAuditLog({
-      userId,
-      action: 'PAYMENT_DEPOSIT_INITIALIZED',
-      targetType: 'Transaction',
-      targetId: result.transactionId,
-      details: {
-        amount,
-        paymentMethod,
-      },
-    });
+    // Note: Payment actions are logged in Transaction model, not AuditLog
+    // AuditLog is for admin actions only
 
     res.status(200).json({
       success: true,
@@ -206,17 +197,8 @@ export const createWithdrawal = asyncHandler(async (req, res) => {
     withdrawalData
   );
 
-  // Audit log
-  await createAuditLog({
-    userId,
-    action: 'WITHDRAWAL_REQUESTED',
-    targetType: 'WithdrawalRequest',
-    targetId: withdrawal._id.toString(),
-    details: {
-      amount: withdrawal.amount,
-      paymentMethod: withdrawal.paymentMethod,
-    },
-  });
+  // Note: Withdrawal requests are logged in WithdrawalRequest and Transaction models
+  // AuditLog is for admin actions only
 
   res.status(201).json({
     success: true,
@@ -396,5 +378,22 @@ export const handleMockCallback = asyncHandler(async (req, res) => {
   // If transaction not found or verification failed, redirect to error page
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
   return res.redirect(`${clientUrl}/wallet?payment=failed`);
+});
+
+// Get payment mode (public endpoint for testing mode banner)
+export const getPaymentMode = asyncHandler(async (req, res) => {
+  const mode = await paymentModeService.getMode();
+  const isTesting = mode === 'testing';
+
+  res.status(200).json({
+    success: true,
+    data: {
+      mode,
+      isTesting,
+      message: isTesting 
+        ? 'Payment system is in testing mode. No real transactions will occur.'
+        : 'Payment system is in production mode. Real transactions will be processed.',
+    },
+  });
 });
 

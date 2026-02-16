@@ -155,7 +155,7 @@ const contractSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ['PENDING', 'COMPLETED', 'FAILED'],
+      enum: ['PENDING', 'FUNDED', 'COMPLETED', 'FAILED'],
       default: 'PENDING',
       index: true,
     },
@@ -167,6 +167,29 @@ const contractSchema = new mongoose.Schema(
     paymentTransactionId: {
       type: String,
       index: true,
+    },
+    // Payment details when work is approved (includes fee breakdown)
+    paymentDetails: {
+      grossAmount: {
+        type: Number,
+        min: 0,
+      },
+      platformFee: {
+        type: Number,
+        min: 0,
+      },
+      netAmount: {
+        type: Number,
+        min: 0,
+      },
+      feePercentage: {
+        type: Number,
+        min: 0,
+        max: 100,
+      },
+      paidAt: {
+        type: Date,
+      },
     },
     // Deliverables submitted by freelancer
     deliverables: [{

@@ -33,6 +33,33 @@ const router = express.Router();
  */
 router.get('/callback/mock', paymentController.handleMockCallback);
 
+/**
+ * @swagger
+ * /api/payments/mode:
+ *   get:
+ *     summary: Get payment mode (testing or production)
+ *     tags: [Payments]
+ *     responses:
+ *       200:
+ *         description: Current payment mode
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     mode:
+ *                       type: string
+ *                       enum: [testing, production]
+ *                     isTesting:
+ *                       type: boolean
+ */
+router.get('/mode', paymentController.getPaymentMode);
+
 // All other routes require authentication
 router.use(authenticate);
 

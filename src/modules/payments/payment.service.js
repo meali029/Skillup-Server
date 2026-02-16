@@ -52,6 +52,7 @@ class PaymentService {
     const transaction = await Transaction.create({
       userId,
       type: TRANSACTION_TYPE.DEPOSIT,
+      direction: 'CREDIT',
       amount,
       status: TRANSACTION_STATUS.PENDING,
       paymentMethod,

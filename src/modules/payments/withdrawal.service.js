@@ -227,6 +227,7 @@ class WithdrawalService {
         await Transaction.create({
           userId: withdrawal.userId,
           type: TRANSACTION_TYPE.WITHDRAWAL,
+          direction: 'DEBIT',
           amount: withdrawal.amount,
           status: TRANSACTION_STATUS.SUCCESS,
           paymentMethod: withdrawal.paymentMethod,

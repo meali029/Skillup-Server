@@ -12,6 +12,146 @@ router.use(authorizeAdmin);
 
 /**
  * @swagger
+ * /api/admin/payments/revenue:
+ *   get:
+ *     summary: Get platform revenue statistics
+ *     tags: [Admin - Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Platform revenue statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 platformFeePercentage:
+ *                   type: number
+ *                 totalFeesCollected:
+ *                   type: number
+ *                 availableBalance:
+ *                   type: number
+ *                 todayRevenue:
+ *                   type: object
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ */
+router.get('/revenue', paymentManagementController.getPlatformRevenueStats);
+
+/**
+ * @swagger
+ * /api/admin/payments/escrows:
+ *   get:
+ *     summary: Get all escrows with filters
+ *     tags: [Admin - Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [CREATED, FUNDED, LOCKED, RELEASED, REFUNDED, DISPUTED]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: minAmount
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: maxAmount
+ *         schema:
+ *           type: number
+ *     responses:
+ *       200:
+ *         description: List of escrows
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ */
+router.get('/escrows', paymentManagementController.getAllEscrows);
+
+/**
+ * @swagger
+ * /api/admin/payments/escrows/{id}/summary:
+ *   get:
+ *     summary: Get escrow summary with fee breakdown
+ *     tags: [Admin - Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Escrow summary with fee breakdown
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Escrow not found
+ */
+router.get('/escrows/:id/summary', paymentManagementController.getEscrowSummary);
+
+/**
+ * @swagger
+ * /api/admin/payments/escrows/{id}/resolve-dispute:
+ *   post:
+ *     summary: Resolve escrow dispute
+ *     tags: [Admin - Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - resolution
+ *             properties:
+ *               resolution:
+ *                 type: string
+ *                 enum: [RELEASE_TO_FREELANCER, REFUND_TO_CLIENT, SPLIT]
+ *               freelancerPercentage:
+ *                 type: number
+ *                 description: Required if resolution is SPLIT
+ *     responses:
+ *       200:
+ *         description: Dispute resolved
+ *       400:
+ *         description: Invalid resolution type
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Escrow not found
+ */
+router.post('/escrows/:id/resolve-dispute', paymentManagementController.resolveDispute);
+
+/**
+ * @swagger
  * /api/admin/payments/transactions:
  *   get:
  *     summary: Get all transactions

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { createAppError } from '../../core/errors/index.js';
 import paymentModeService from './paymentMode.service.js';
 import mockPaymentService from './mockPayment.service.js';
+import { getEnv } from '../../core/utils/envLoader.js';
 
 /**
  * JazzCash Payment Gateway Service
@@ -10,31 +11,37 @@ import mockPaymentService from './mockPayment.service.js';
  */
 class JazzCashService {
   constructor() {
-    // Check payment mode (testing or production)
-    this.isTesting = paymentModeService.isTestingModeSync();
-    
-    if (this.isTesting) {
-      // In testing mode, use mock service
-      this.mockService = mockPaymentService;
-      console.log('[JazzCashService] Initialized in TESTING mode - using mock service');
-    } else {
-      // In production mode, load real credentials
-      this.merchantId = process.env.JAZZCASH_MERCHANT_ID;
-      this.password = process.env.JAZZCASH_PASSWORD;
-      this.integrationKey = process.env.JAZZCASH_INTEGRATION_KEY;
-      this.returnUrl = process.env.JAZZCASH_RETURN_URL || `${process.env.CLIENT_URL}/payment/callback/jazzcash`;
-      this.sandbox = process.env.JAZZCASH_SANDBOX === 'true';
-      this.baseUrl = this.sandbox
-        ? 'https://sandbox.jazzcash.com.pk'
-        : 'https://jazzcash.com.pk';
-      console.log('[JazzCashService] Initialized in PRODUCTION mode');
-    }
+    this.mockService = mockPaymentService;
+    console.log('[JazzCashService] Initialized - mode will be checked dynamically on each request');
+  }
+
+  /**
+   * Get credentials dynamically (reads from DB cache)
+   */
+  getCredentials() {
+    return {
+      merchantId: getEnv('JAZZCASH_MERCHANT_ID'),
+      password: getEnv('JAZZCASH_PASSWORD'),
+      integrationKey: getEnv('JAZZCASH_INTEGRATION_KEY'),
+      returnUrl: getEnv('JAZZCASH_RETURN_URL') || `${getEnv('CLIENT_URL')}/payment/callback/jazzcash`,
+      sandbox: getEnv('JAZZCASH_SANDBOX') === 'true',
+    };
+  }
+
+  /**
+   * Get base URL based on sandbox mode
+   */
+  getBaseUrl() {
+    const { sandbox } = this.getCredentials();
+    return sandbox
+      ? 'https://sandbox.jazzcash.com.pk'
+      : 'https://jazzcash.com.pk';
   }
 
   /**
    * Generate secure hash for JazzCash payment
    */
-  generateHash(data) {
+  generateHash(data, integrationKey) {
     const string = Object.keys(data)
       .sort()
       .map((key) => `${key}=${data[key]}`)
@@ -57,18 +64,18 @@ class JazzCashService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      if (!this.mockService) {
-        console.error('[JazzCashService] Mock service not initialized!');
-        this.mockService = mockPaymentService;
-      }
-      console.log('[JazzCashService] Using mock service for payment initialization');
+      console.log('[JazzCashService] TESTING MODE - Using mock service for payment initialization');
       return this.mockService.initializePayment(paymentData);
     }
 
+    // PRODUCTION MODE - Use real JazzCash API
+    console.log('[JazzCashService] PRODUCTION MODE - Using real JazzCash API');
+    
     const { amount, orderId, customerEmail, customerName, customerPhone } = paymentData;
+    const creds = this.getCredentials();
 
-    if (!this.merchantId || !this.password || !this.integrationKey) {
-      throw createAppError('JazzCash credentials not configured', 500);
+    if (!creds.merchantId || !creds.password || !creds.integrationKey) {
+      throw createAppError('JazzCash credentials not configured. Please configure in Admin Settings.', 500);
     }
 
     const ppAmount = Math.round(amount * 100); // Convert to paisa
@@ -80,9 +87,9 @@ class JazzCashService {
       pp_Version: '1.1',
       pp_TxnType: 'MWALLET',
       pp_Language: 'EN',
-      pp_MerchantID: this.merchantId,
+      pp_MerchantID: creds.merchantId,
       pp_SubMerchantID: '',
-      pp_Password: this.password,
+      pp_Password: creds.password,
       pp_BankID: '',
       pp_ProductID: '',
       pp_TxnRefNo: `TXN${Date.now()}`,
@@ -92,7 +99,7 @@ class JazzCashService {
       pp_BillReference: ppBillReference,
       pp_Description: ppDescription,
       pp_TxnExpiryDateTime: '',
-      pp_ReturnURL: this.returnUrl,
+      pp_ReturnURL: creds.returnUrl,
       pp_SecureHash: '',
       ppmpf_1: customerEmail || '',
       ppmpf_2: customerName || '',
@@ -102,24 +109,25 @@ class JazzCashService {
     };
 
     // Generate secure hash
-    payload.pp_SecureHash = this.generateHash(payload);
+    payload.pp_SecureHash = this.generateHash(payload, creds.integrationKey);
+    const baseUrl = this.getBaseUrl();
 
     try {
-      // In production, this would POST to JazzCash API
-      // For now, return mock response structure
-      if (this.sandbox) {
-        // Sandbox mode - return mock payment URL
+      // In sandbox mode, return mock payment URL for JazzCash testing
+      if (creds.sandbox) {
+        console.log('[JazzCashService] PRODUCTION (Sandbox) - Using JazzCash sandbox');
         return {
           success: true,
-          paymentUrl: `${this.baseUrl}/payment?txnRef=${payload.pp_TxnRefNo}`,
+          paymentUrl: `${baseUrl}/payment?txnRef=${payload.pp_TxnRefNo}`,
           transactionRef: payload.pp_TxnRefNo,
           orderId: ppBillReference,
         };
       }
 
-      // Production mode - make actual API call
+      // Production mode - make actual API call to JazzCash
+      console.log('[JazzCashService] PRODUCTION (Live) - Making real API call to JazzCash');
       const response = await axios.post(
-        `${this.baseUrl}/api/payment/initiate`,
+        `${baseUrl}/api/payment/initiate`,
         payload,
         {
           headers: {
@@ -135,7 +143,7 @@ class JazzCashService {
 
       return {
         success: true,
-        paymentUrl: response.data.paymentUrl || `${this.baseUrl}/payment?txnRef=${payload.pp_TxnRefNo}`,
+        paymentUrl: response.data.paymentUrl || `${baseUrl}/payment?txnRef=${payload.pp_TxnRefNo}`,
         transactionRef: payload.pp_TxnRefNo,
         orderId: ppBillReference,
       };
@@ -173,8 +181,13 @@ class JazzCashService {
     
     // If in testing mode, use mock service
     if (isTesting) {
+      console.log('[JazzCashService] TESTING MODE - Using mock service for payment verification');
       return this.mockService.verifyPayment(callbackData);
     }
+
+    // PRODUCTION MODE
+    console.log('[JazzCashService] PRODUCTION MODE - Verifying real JazzCash payment');
+    const creds = this.getCredentials();
 
     const {
       pp_TxnRefNo,
@@ -186,7 +199,7 @@ class JazzCashService {
     } = callbackData;
 
     // Verify secure hash
-    const calculatedHash = this.generateHash(callbackData);
+    const calculatedHash = this.generateHash(callbackData, creds.integrationKey);
     if (calculatedHash !== pp_SecureHash) {
       throw createAppError('Invalid payment hash', 400);
     }
@@ -216,13 +229,17 @@ class JazzCashService {
     
     // If in testing mode, use mock service
     if (isTesting) {
+      console.log('[JazzCashService] TESTING MODE - Using mock service for withdrawal');
       return this.mockService.processWithdrawal(withdrawalData);
     }
 
+    // PRODUCTION MODE
+    console.log('[JazzCashService] PRODUCTION MODE - Processing real JazzCash withdrawal');
+    const creds = this.getCredentials();
     const { amount, accountNumber, phoneNumber, cnic } = withdrawalData;
 
-    if (!this.merchantId || !this.password) {
-      throw createAppError('JazzCash credentials not configured', 500);
+    if (!creds.merchantId || !creds.password) {
+      throw createAppError('JazzCash credentials not configured. Please configure in Admin Settings.', 500);
     }
 
     const ppAmount = Math.round(amount * 100); // Convert to paisa
@@ -232,8 +249,8 @@ class JazzCashService {
     const payload = {
       pp_Version: '1.1',
       pp_TxnType: 'MWALLET',
-      pp_MerchantID: this.merchantId,
-      pp_Password: this.password,
+      pp_MerchantID: creds.merchantId,
+      pp_Password: creds.password,
       pp_TxnRefNo: ppTxnRefNo,
       pp_Amount: ppAmount.toString(),
       pp_TxnCurrency: 'PKR',
@@ -243,9 +260,12 @@ class JazzCashService {
       pp_CNIC: cnic,
     };
 
+    const baseUrl = this.getBaseUrl();
+
     try {
-      if (this.sandbox) {
+      if (creds.sandbox) {
         // Sandbox mode - return mock success
+        console.log('[JazzCashService] PRODUCTION (Sandbox) - Using JazzCash sandbox for withdrawal');
         return {
           success: true,
           transactionId: ppTxnRefNo,
@@ -256,8 +276,9 @@ class JazzCashService {
       }
 
       // Production mode - make actual API call
+      console.log('[JazzCashService] PRODUCTION (Live) - Making real API call for withdrawal');
       const response = await axios.post(
-        `${this.baseUrl}/api/withdrawal`,
+        `${baseUrl}/api/withdrawal`,
         payload,
         {
           headers: {

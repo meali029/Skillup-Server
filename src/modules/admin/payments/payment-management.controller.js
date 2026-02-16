@@ -1,17 +1,101 @@
 import paymentService from '../../payments/payment.service.js';
 import withdrawalService from '../../payments/withdrawal.service.js';
 import escrowService from '../../payments/escrow.service.js';
+import walletService from '../../payments/wallet.service.js';
 import Transaction from '../../../models/Transaction.js';
+import PlatformWallet from '../../../models/PlatformWallet.js';
 import { asyncHandler } from '../../../core/utils/index.js';
 import { createAppError } from '../../../core/errors/index.js';
 import paymentModeService from '../../../services/paymentGateways/paymentMode.service.js';
 import { refreshEnvFromDatabase } from '../../../core/utils/envLoader.js';
 import { createAuditLog } from '../../../core/utils/auditLogger.js';
+import { PLATFORM_FEE } from '../../../config/payment.config.js';
 
 /**
  * Admin Payment Management Controller
- * Handles admin operations for payments, withdrawals, and escrows
+ * Handles admin operations for payments, withdrawals, escrows, and platform revenue
  */
+
+// Get platform revenue statistics
+export const getPlatformRevenueStats = asyncHandler(async (req, res) => {
+  const stats = await walletService.getPlatformRevenueStats();
+  const todayRevenue = await PlatformWallet.getTodayRevenue();
+  const escrowStats = await escrowService.getEscrowStats();
+
+  res.status(200).json({
+    success: true,
+    data: {
+      platformFeePercentage: PLATFORM_FEE.percentage,
+      ...stats,
+      todayRevenue,
+      escrowStats,
+    },
+  });
+});
+
+// Get all escrows (admin)
+export const getAllEscrows = asyncHandler(async (req, res) => {
+  const filters = {
+    status: req.query.status,
+    clientId: req.query.clientId,
+    freelancerId: req.query.freelancerId,
+    minAmount: req.query.minAmount ? parseFloat(req.query.minAmount) : undefined,
+    maxAmount: req.query.maxAmount ? parseFloat(req.query.maxAmount) : undefined,
+  };
+
+  const pagination = {
+    page: parseInt(req.query.page) || 1,
+    limit: parseInt(req.query.limit) || 20,
+  };
+
+  const result = await escrowService.getAllEscrows(filters, pagination);
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+});
+
+// Get escrow summary with fee breakdown
+export const getEscrowSummary = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const summary = await escrowService.getEscrowSummary(id);
+
+  res.status(200).json({
+    success: true,
+    data: summary,
+  });
+});
+
+// Resolve dispute (admin)
+export const resolveDispute = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { resolution, freelancerPercentage } = req.body;
+  const adminId = req.user.id;
+
+  // Validate resolution type
+  if (!['RELEASE_TO_FREELANCER', 'REFUND_TO_CLIENT', 'SPLIT'].includes(resolution)) {
+    throw createAppError('Invalid resolution type', 400);
+  }
+
+  const result = await escrowService.resolveDispute(id, adminId, resolution, {
+    freelancerPercentage,
+  });
+
+  await createAuditLog({
+    adminId,
+    action: 'DISPUTE_RESOLVED',
+    targetType: 'Escrow',
+    targetId: id,
+    details: { resolution, freelancerPercentage },
+  });
+
+  res.status(200).json({
+    success: true,
+    data: result,
+    message: `Dispute resolved: ${resolution}`,
+  });
+});
 
 // Get all transactions (admin)
 export const getAllTransactions = asyncHandler(async (req, res) => {
@@ -214,6 +298,9 @@ export const updatePaymentMode = asyncHandler(async (req, res) => {
     throw createAppError('Invalid payment mode. Must be "testing" or "production"', 400);
   }
 
+  // Get previous mode before update
+  const previousMode = await paymentModeService.getMode();
+
   // Update environment variable in database
   const envService = (await import('../../../services/env/env.service.js')).default;
   await envService.setVariable(
@@ -230,16 +317,13 @@ export const updatePaymentMode = asyncHandler(async (req, res) => {
 
   // Refresh environment cache
   await refreshEnvFromDatabase();
-
-  // Get previous mode before update
-  const previousMode = await paymentModeService.getMode();
   
   // Audit log
   await createAuditLog({
     adminId: adminId,
     action: 'PAYMENT_MODE_UPDATED',
     targetType: 'System',
-    targetId: 'payment-mode',
+    targetId: null,
     details: {
       mode,
       previousMode,

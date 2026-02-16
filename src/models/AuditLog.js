@@ -42,6 +42,7 @@ const auditLogSchema = new mongoose.Schema(
         'ESCROW_RELEASED',
         'ESCROW_REFUNDED',
         'ESCROW_FROZEN',
+        'DISPUTE_RESOLVED',
         'PAYMENT_MODE_UPDATED',
       ],
       index: true,

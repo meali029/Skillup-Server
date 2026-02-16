@@ -2,6 +2,7 @@ import Contract from '../../models/Contract.js';
 import Proposal from '../../models/Proposal.js';
 import Job from '../../models/Job.js';
 import Conversation from '../../models/Conversation.js';
+import Escrow from '../../models/Escrow.js';
 import { createAppError } from '../../core/errors/index.js';
 import { createAuditLog } from '../../core/utils/auditLogger.js';
 import { markJobInProgress, markJobCompleted } from '../jobs/job.service.js';
@@ -15,6 +16,7 @@ import {
 } from './contract.constants.js';
 import escrowService from '../payments/escrow.service.js';
 import paymentService from '../payments/payment.service.js';
+import walletService from '../payments/wallet.service.js';
 import { notifyUser } from '../notifications/notification.service.js';
 import { emitContractEvent } from '../../sockets/index.js';
 
@@ -141,20 +143,60 @@ class ContractService {
       );
       console.log('🟢 Escrow created:', escrow._id);
 
-      // Initialize payment deposit with escrow linking
-      console.log('🟢 Initializing payment...');
-      const paymentResult = await paymentService.initializeDeposit(
-        clientId,
-        totalAmount,
-        paymentData.paymentMethod,
-        paymentData.customerData || {},
-        {
-          escrowId: escrow._id.toString(),
-          contractId: null, // Will be set after contract creation
-          isContractCreation: true,
+      let paymentResult;
+      let isWalletPayment = paymentData.paymentMethod === 'WALLET';
+
+      if (isWalletPayment) {
+        // WALLET PAYMENT: Deduct from wallet and fund escrow directly
+        console.log('🟢 Processing wallet payment...');
+        
+        // Check wallet balance
+        const wallet = await walletService.getWallet(clientId);
+        if (!wallet || wallet.availableBalance < totalAmount) {
+          // Delete the escrow we just created since payment failed
+          await Escrow.findByIdAndDelete(escrow._id);
+          throw createAppError(
+            `Insufficient wallet balance. Available: Rs. ${wallet?.availableBalance || 0}, Required: Rs. ${totalAmount}`,
+            400
+          );
         }
-      );
-      console.log('🟢 Payment initialized:', paymentResult.transactionId);
+
+        // Lock funds from wallet for escrow
+        const lockResult = await walletService.lockFunds(
+          clientId,
+          totalAmount,
+          escrow._id.toString()
+        );
+        console.log('🟢 Funds locked from wallet:', lockResult.transaction?._id);
+
+        // Fund escrow with wallet transaction
+        await escrow.fund(lockResult.transaction?._id?.toString() || `WALLET-${Date.now()}`, 'WALLET');
+        await escrow.save();
+        console.log('🟢 Escrow funded with wallet payment');
+
+        paymentResult = {
+          transactionId: lockResult.transaction?._id?.toString() || `WALLET-${Date.now()}`,
+          paymentUrl: null,
+          requiresManualVerification: false,
+          isWalletPayment: true,
+        };
+      } else {
+        // EXTERNAL PAYMENT: Initialize deposit with escrow linking
+        console.log('🟢 Initializing external payment...');
+        paymentResult = await paymentService.initializeDeposit(
+          clientId,
+          totalAmount,
+          paymentData.paymentMethod,
+          paymentData.customerData || {},
+          {
+            escrowId: escrow._id.toString(),
+            contractId: null, // Will be set after contract creation
+            isContractCreation: true,
+          }
+        );
+        paymentResult.isWalletPayment = false;
+      }
+      console.log('🟢 Payment processed:', paymentResult.transactionId);
 
       // Create contract with escrow reference
       console.log('🟢 Creating contract object...');
@@ -172,8 +214,9 @@ class ContractService {
         terms: contractData.terms,
         deadline: contractData.deadline,
         milestones: contractData.milestones || [],
-        status: CONTRACT_STATUS.PENDING, // Initial status is always pending
-        paymentStatus: 'PENDING', // Payment pending until verified
+        // If wallet payment, contract is ACTIVE immediately since funds are already locked
+        status: isWalletPayment ? CONTRACT_STATUS.ACTIVE : CONTRACT_STATUS.PENDING,
+        paymentStatus: isWalletPayment ? 'FUNDED' : 'PENDING',
         initialEscrowId: escrow._id,
         paymentTransactionId: paymentResult.transactionId,
       });
@@ -996,9 +1039,11 @@ class ContractService {
       throw createAppError(`Cannot approve work in ${contract.status} status`, 400);
     }
 
-    // Release escrow payment
+    // Release escrow payment (with 5% platform fee!)
+    let paymentDetails = null;
     if (contract.initialEscrowId) {
-      await escrowService.releaseEscrow(contract.initialEscrowId.toString(), clientId);
+      const result = await escrowService.releaseEscrow(contract.initialEscrowId.toString(), clientId);
+      paymentDetails = result.paymentDetails;
     }
 
     // Update contract
@@ -1006,6 +1051,17 @@ class ContractService {
     contract.completedAt = new Date();
     contract.reviewedAt = new Date();
     contract.reviewedBy = clientId;
+    
+    // Store payment details on contract for reference
+    if (paymentDetails) {
+      contract.paymentDetails = {
+        grossAmount: paymentDetails.grossAmount,
+        platformFee: paymentDetails.platformFee,
+        netAmount: paymentDetails.netAmount,
+        feePercentage: paymentDetails.feePercentage,
+        paidAt: new Date(),
+      };
+    }
     
     // Add client's review of freelancer (if provided)
     if (reviewData && reviewData.rating) {
@@ -1037,20 +1093,28 @@ class ContractService {
       details: { 
         completedAt: contract.completedAt,
         rating: reviewData?.rating,
+        paymentDetails,
       },
     });
 
-    // Send notification to freelancer
+    // Send notification to freelancer with payment breakdown
     try {
+      const paymentMessage = paymentDetails 
+        ? `Payment of PKR ${paymentDetails.netAmount.toLocaleString()} has been released (after ${paymentDetails.feePercentage}% platform fee).`
+        : `Payment has been released!`;
+
       await notifyUser(contract.freelancer._id || contract.freelancer, {
         type: 'CONTRACT_WORK_APPROVED',
         title: '🎉 Work Approved!',
-        message: `${contract.client.name} has approved your work for "${contract.title}". Payment has been released!`,
+        message: `${contract.client.name} has approved your work for "${contract.title}". ${paymentMessage}`,
         link: `/contracts/${contractId}`,
         data: {
           contractId: contractId,
           clientId: clientId,
-          amount: contract.totalAmount,
+          amount: paymentDetails?.netAmount || contract.totalAmount,
+          grossAmount: paymentDetails?.grossAmount || contract.totalAmount,
+          platformFee: paymentDetails?.platformFee || 0,
+          feePercentage: paymentDetails?.feePercentage || 5,
           rating: reviewData?.rating,
         },
       });
@@ -1060,7 +1124,9 @@ class ContractService {
         clientId: clientId,
         freelancerId: contract.freelancer._id || contract.freelancer,
         status: CONTRACT_STATUS.COMPLETED,
-        amount: contract.totalAmount,
+        amount: paymentDetails?.netAmount || contract.totalAmount,
+        grossAmount: paymentDetails?.grossAmount || contract.totalAmount,
+        platformFee: paymentDetails?.platformFee || 0,
       });
     } catch (error) {
       console.error('Failed to send work approval notification:', error);
