@@ -233,6 +233,35 @@ class ContractService {
       await escrow.save();
       console.log('🟢 Escrow linked to contract');
 
+      // Auto-fund escrows for milestones defined during contract creation
+      if (isWalletPayment && contract.milestones.length > 0) {
+        console.log('🟢 Auto-funding escrows for', contract.milestones.length, 'milestones...');
+        for (const milestone of contract.milestones) {
+          try {
+            const milestoneEscrow = await escrowService.createEscrow(
+              contract._id.toString(),
+              milestone._id.toString(),
+              milestone.amount
+            );
+            // Direct DB update to bypass model validations
+            await Escrow.findByIdAndUpdate(milestoneEscrow._id, {
+              status: 'LOCKED',
+              fundedAt: new Date(),
+              lockedAt: new Date(),
+              paymentMethod: 'CONTRACT_ESCROW',
+              fundTransactionId: paymentResult.transactionId || null,
+              expiresAt: null,
+            });
+
+            milestone.escrowId = milestoneEscrow._id;
+            console.log('🟢 Auto-funded milestone escrow:', milestone._id);
+          } catch (err) {
+            console.error('🔴 Failed to auto-fund milestone escrow:', milestone._id, err.message);
+          }
+        }
+        await contract.save();
+      }
+
       // Create conversation for contract communication
       console.log('🟢 Creating conversation...');
       await Conversation.findOrCreate(
@@ -454,7 +483,8 @@ class ContractService {
     // Handle accept/decline actions with proper status transitions
     if (action === 'accept') {
       // Business Rule: Payment must be completed before freelancer can accept
-      if (contract.paymentStatus && contract.paymentStatus !== 'COMPLETED') {
+      // Accept both COMPLETED (external payment) and FUNDED (wallet payment) statuses
+      if (contract.paymentStatus && !['COMPLETED', 'FUNDED'].includes(contract.paymentStatus)) {
         throw createAppError('Contract payment must be completed before acceptance', 400);
       }
       
@@ -492,6 +522,39 @@ class ContractService {
     }
 
     await contract.save();
+
+    // Auto-fund milestone escrows when contract becomes active
+    if (action === 'accept' && contract.milestones.length > 0) {
+      console.log('[CONTRACT][ACCEPT] Auto-funding escrows for', contract.milestones.length, 'milestones...');
+      for (const milestone of contract.milestones) {
+        try {
+          let milestoneEscrow = await escrowService.getEscrowByMilestone(contractId, milestone._id.toString());
+          if (!milestoneEscrow) {
+            milestoneEscrow = await escrowService.createEscrow(
+              contractId,
+              milestone._id.toString(),
+              milestone.amount
+            );
+          }
+          if (milestoneEscrow.status === 'CREATED') {
+            await Escrow.findByIdAndUpdate(milestoneEscrow._id, {
+              status: 'LOCKED',
+              fundedAt: new Date(),
+              lockedAt: new Date(),
+              paymentMethod: 'CONTRACT_ESCROW',
+              fundTransactionId: contract.paymentTransactionId || null,
+              expiresAt: null,
+            });
+
+            milestone.escrowId = milestoneEscrow._id;
+            console.log('[CONTRACT][ACCEPT] Auto-funded milestone escrow:', milestone._id);
+          }
+        } catch (err) {
+          console.error('[CONTRACT][ACCEPT] Failed to auto-fund milestone escrow:', milestone._id, err.message);
+        }
+      }
+      await contract.save();
+    }
 
     // Update conversation metadata to reflect contract status
     await Conversation.findOneAndUpdate(
@@ -565,11 +628,34 @@ class ContractService {
     // Create escrow for the milestone
     const addedMilestone = contract.milestones[contract.milestones.length - 1];
     try {
-      await escrowService.createEscrow(
+      const milestoneEscrow = await escrowService.createEscrow(
         contractId,
         addedMilestone._id.toString(),
         milestoneData.amount
       );
+
+      // Auto-fund milestone escrow if contract is already funded/active
+      // The total contract payment already covers all milestones
+      if (contract.status === CONTRACT_STATUS.ACTIVE) {
+        try {
+          await Escrow.findByIdAndUpdate(milestoneEscrow._id, {
+            status: 'LOCKED',
+            fundedAt: new Date(),
+            lockedAt: new Date(),
+            paymentMethod: 'CONTRACT_ESCROW',
+            fundTransactionId: contract.paymentTransactionId || null,
+            expiresAt: null,
+          });
+
+          // Store escrow ID on milestone
+          addedMilestone.escrowId = milestoneEscrow._id;
+          await contract.save();
+
+          console.log('[CONTRACT][ADD_MILESTONE] Auto-funded milestone escrow from contract escrow:', addedMilestone._id);
+        } catch (fundError) {
+          console.error('[CONTRACT][ADD_MILESTONE] Auto-fund failed (milestone still created):', fundError.message);
+        }
+      }
     } catch (error) {
       // Log error but don't fail milestone creation
       console.error('Failed to create escrow for milestone:', error.message);
@@ -689,13 +775,69 @@ class ContractService {
     }
 
     // Verify escrow is funded before freelancer can start
-    const escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
+    let escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
+    
+    console.log('[START_MILESTONE] Escrow lookup result:', escrow ? { id: escrow._id, status: escrow.status } : 'NOT_FOUND');
+    console.log('[START_MILESTONE] Contract paymentStatus:', contract.paymentStatus);
+    console.log('[START_MILESTONE] Contract initialEscrowId:', contract.initialEscrowId);
+    
+    // Auto-fund milestone escrow if contract's total escrow is already funded
+    // This handles milestones where the client already paid for the full contract
     if (!escrow || !['FUNDED', 'LOCKED'].includes(escrow.status)) {
-      console.log('[START_MILESTONE] Blocked: Escrow not funded. Status:', escrow?.status || 'NOT_CREATED');
-      throw createAppError(
-        'This milestone has not been funded yet. The client must fund the escrow before you can start working.',
-        400
-      );
+      // Check if contract is active (meaning client already paid)
+      if (contract.status === CONTRACT_STATUS.ACTIVE) {
+        try {
+          // Create escrow if it doesn't exist
+          if (!escrow) {
+            try {
+              escrow = await escrowService.createEscrow(contractId, milestoneId, milestone.amount);
+              console.log('[START_MILESTONE] Created new escrow:', escrow._id);
+            } catch (createErr) {
+              // If "already exists" error, try to fetch it again
+              console.log('[START_MILESTONE] createEscrow error:', createErr.message);
+              escrow = await Escrow.findOne({ contractId, milestoneId });
+              if (!escrow) {
+                throw createErr;
+              }
+              console.log('[START_MILESTONE] Found existing escrow after create error:', escrow._id, 'Status:', escrow.status);
+            }
+          }
+          
+          // Auto-fund: directly update escrow status in DB to bypass wallet transfer
+          // Since client already paid the total contract amount, no additional deduction needed
+          if (escrow.status === 'CREATED' || escrow.status === 'EXPIRED') {
+            await Escrow.findByIdAndUpdate(escrow._id, {
+              status: 'LOCKED',
+              fundedAt: new Date(),
+              lockedAt: new Date(),
+              paymentMethod: 'CONTRACT_ESCROW',
+              fundTransactionId: contract.paymentTransactionId || null,
+              expiresAt: null,
+            });
+            
+            // Refresh escrow object
+            escrow = await Escrow.findById(escrow._id);
+            
+            // Store escrow ID on milestone
+            milestone.escrowId = escrow._id;
+            await contract.save();
+            
+            console.log('[START_MILESTONE] Auto-funded milestone escrow from contract payment:', milestoneId, 'New status:', escrow.status);
+          }
+        } catch (autoFundError) {
+          console.error('[START_MILESTONE] Auto-fund failed:', autoFundError.message, autoFundError.stack);
+          throw createAppError(
+            'This milestone has not been funded yet. The client must fund the escrow before you can start working.',
+            400
+          );
+        }
+      } else {
+        console.log('[START_MILESTONE] Blocked: Contract not active or escrow not funded. Contract status:', contract.status, 'Escrow status:', escrow?.status || 'NOT_CREATED');
+        throw createAppError(
+          'This milestone has not been funded yet. The client must fund the escrow before you can start working.',
+          400
+        );
+      }
     }
     console.log('[START_MILESTONE] Escrow verified:', escrow._id, 'Status:', escrow.status);
 
@@ -747,8 +889,8 @@ class ContractService {
 
     console.log('[SUBMIT_MILESTONE] Milestone status:', milestone.status);
 
-    if (milestone.status !== MILESTONE_STATUS.IN_PROGRESS) {
-      throw createAppError(`Cannot submit milestone in ${milestone.status} status. Must be in progress.`, 400);
+    if (milestone.status !== MILESTONE_STATUS.IN_PROGRESS && milestone.status !== MILESTONE_STATUS.REVISION_REQUESTED) {
+      throw createAppError(`Cannot submit milestone in ${milestone.status} status. Must be in progress or revision_requested.`, 400);
     }
 
     // Add deliverables to milestone

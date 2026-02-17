@@ -53,6 +53,7 @@ import disputeRoutes from "./modules/disputes/dispute.routes.js";
 import paymentRoutes from "./modules/payments/payment.routes.js";
 import reviewRoutes from "./modules/reviews/review.routes.js";
 import paymentManagementRoutes from "./modules/admin/payments/payment-management.routes.js";
+import uploadRoutes from "./modules/uploads/upload.routes.js";
 import { errorHandler, createAppError } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
@@ -254,6 +255,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/disputes", disputeRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);
