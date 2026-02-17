@@ -71,8 +71,19 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
+// Validate and prepare session secret (ensure it's never null/undefined)
+let sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret || sessionSecret === 'null' || sessionSecret === 'undefined') {
+  sessionSecret = "your-super-secret-session-key-change-in-production-min-32-chars";
+  console.warn('⚠️  [Session] SESSION_SECRET not properly set, using fallback secret');
+}
+
+if (sessionSecret.length < 32) {
+  console.warn('⚠️  [Session] SESSION_SECRET should be at least 32 characters for security');
+}
+
 const sessionOptions = {
-  secret: process.env.SESSION_SECRET || "your-super-secret-session-key-change-in-production-min-32-chars",
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -85,15 +96,18 @@ const sessionOptions = {
 
 // Avoid connecting to MongoDB for session store when running tests
 if (process.env.NODE_ENV !== 'test') {
-  if (process.env.MONGO_URI) {
+  const mongoUri = process.env.MONGO_URI;
+  
+  if (mongoUri) {
     try {
       sessionOptions.store = MongoStore.create({
-        mongoUrl: process.env.MONGO_URI,
+        mongoUrl: mongoUri,
         touchAfter: 24 * 3600,
         crypto: {
-          secret: process.env.SESSION_SECRET || "your-super-secret-session-key-change-in-production-min-32-chars",
+          secret: sessionSecret,
         },
       });
+      console.info('[Session] MongoDB session store configured successfully');
     } catch (err) {
       console.error('[Session] Failed to initialize Mongo session store:', err.message);
       console.warn('[Session] Falling back to in-memory session store. Set MONGO_URI in production to enable Mongo-backed sessions.');
