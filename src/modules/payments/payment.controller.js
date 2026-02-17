@@ -3,6 +3,7 @@ import walletService from './wallet.service.js';
 import withdrawalService from './withdrawal.service.js';
 import escrowService from './escrow.service.js';
 import paymentModeService from '../../services/paymentGateways/paymentMode.service.js';
+import Transaction from '../../models/Transaction.js';
 import { asyncHandler } from '../../core/utils/index.js';
 import { createAppError } from '../../core/errors/index.js';
 
@@ -308,8 +309,14 @@ export const getMilestoneEscrow = asyncHandler(async (req, res) => {
   });
 });
 
-// Handle mock payment callback (for testing mode)
+// Handle mock payment callback (for testing mode ONLY)
 export const handleMockCallback = asyncHandler(async (req, res) => {
+  // PRODUCTION SAFEGUARD: Block mock payments in production mode
+  const isTesting = await paymentModeService.isTestingMode();
+  if (!isTesting) {
+    throw createAppError('Mock payments are not available in production mode', 403);
+  }
+
   const { txnRef, orderId, amount, status } = req.query;
 
   // Verify payment using mock service
@@ -394,6 +401,35 @@ export const getPaymentMode = asyncHandler(async (req, res) => {
         ? 'Payment system is in testing mode. No real transactions will occur.'
         : 'Payment system is in production mode. Real transactions will be processed.',
     },
+  });
+});
+
+// Get single transaction by ID
+export const getTransactionById = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { transactionId } = req.params;
+
+  const transaction = await Transaction.findById(transactionId)
+    .populate('userId', 'name email avatar')
+    .populate('counterPartyId', 'name email avatar')
+    .populate('escrowId', 'amount status contractId milestoneId')
+    .populate('contractId', 'title status totalAmount')
+    .lean();
+
+  if (!transaction) {
+    throw createAppError('Transaction not found', 404);
+  }
+
+  // Users can only view their own transactions (unless admin)
+  if (transaction.userId?._id?.toString() !== userId && 
+      transaction.counterPartyId?._id?.toString() !== userId &&
+      req.user.role !== 'admin') {
+    throw createAppError('Unauthorized to view this transaction', 403);
+  }
+
+  res.status(200).json({
+    success: true,
+    data: { transaction },
   });
 });
 

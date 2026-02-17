@@ -259,6 +259,32 @@ router.get(
 
 /**
  * @swagger
+ * /api/payments/transactions/{transactionId}:
+ *   get:
+ *     summary: Get single transaction details
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Transaction details
+ *       404:
+ *         description: Transaction not found
+ */
+router.get(
+  '/transactions/:transactionId',
+  paymentRateLimit,
+  paymentController.getTransactionById
+);
+
+/**
+ * @swagger
  * /api/payments/withdrawals:
  *   post:
  *     summary: Create a withdrawal request

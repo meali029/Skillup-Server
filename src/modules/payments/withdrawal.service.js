@@ -3,6 +3,7 @@ import walletService from './wallet.service.js';
 import Transaction from '../../models/Transaction.js';
 import { createAppError } from '../../core/errors/index.js';
 import { encrypt, decrypt } from '../../core/utils/encryption.js';
+import { createAuditLog } from '../../core/utils/auditLogger.js';
 import {
   PAYMENT_METHOD,
   WITHDRAWAL_STATUS,
@@ -110,8 +111,12 @@ class WithdrawalService {
     await walletService.debitWallet(
       userId,
       amount,
-      withdrawalRequest._id.toString(),
-      `Withdrawal request: PKR ${amount}`
+      {
+        withdrawalRequestId: withdrawalRequest._id.toString(),
+        description: `Withdrawal request: PKR ${amount}`,
+        type: TRANSACTION_TYPE.WITHDRAWAL,
+        paymentMethod,
+      }
     );
 
     return withdrawalRequest;
@@ -218,21 +223,36 @@ class WithdrawalService {
         );
         await withdrawal.save();
 
-        // Update wallet total withdrawn
-        const wallet = await walletService.getWallet(withdrawal.userId);
-        wallet.totalWithdrawn += withdrawal.amount;
-        await wallet.save();
+        // Update the transaction record with gateway transaction ID
+        await Transaction.findOneAndUpdate(
+          { withdrawalRequestId: withdrawalId },
+          {
+            gatewayTransactionId: withdrawalResult.gatewayTransactionId,
+            status: TRANSACTION_STATUS.SUCCESS,
+            completedAt: new Date(),
+            metadata: {
+              processedBy: adminId,
+              processedAt: new Date(),
+              gatewayResponse: withdrawalResult.transactionId,
+            }
+          }
+        );
 
-        // Create transaction record
-        await Transaction.create({
-          userId: withdrawal.userId,
-          type: TRANSACTION_TYPE.WITHDRAWAL,
-          direction: 'DEBIT',
-          amount: withdrawal.amount,
-          status: TRANSACTION_STATUS.SUCCESS,
-          paymentMethod: withdrawal.paymentMethod,
-          gatewayTransactionId: withdrawalResult.gatewayTransactionId,
-          description: `Withdrawal: PKR ${withdrawal.amount} via ${withdrawal.paymentMethod}`,
+        // Note: totalWithdrawn already incremented by debitWallet → atomicRecordWithdrawal
+        // No need to increment again here
+
+        // Audit log for successful withdrawal processing
+        await createAuditLog({
+          adminId,
+          action: 'WITHDRAWAL_PROCESSED',
+          targetType: 'WithdrawalRequest',
+          targetId: withdrawalId,
+          details: {
+            amount: withdrawal.amount,
+            paymentMethod: withdrawal.paymentMethod,
+            userId: withdrawal.userId?.toString(),
+            gatewayTransactionId: withdrawalResult.gatewayTransactionId,
+          },
         });
 
         return withdrawal;
@@ -241,11 +261,28 @@ class WithdrawalService {
         await withdrawal.markFailed(withdrawalResult.message || 'Withdrawal processing failed');
         await withdrawal.save();
 
+        // Update transaction to show failure
+        await Transaction.findOneAndUpdate(
+          { withdrawalRequestId: withdrawalId },
+          {
+            status: TRANSACTION_STATUS.FAILED,
+            failureReason: withdrawalResult.message || 'Withdrawal processing failed',
+            metadata: {
+              processedBy: adminId,
+              processedAt: new Date(),
+            }
+          }
+        );
+
         // Refund to wallet
         await walletService.creditWallet(
           withdrawal.userId,
           withdrawal.amount,
-          withdrawal._id.toString()
+          {
+            description: `Withdrawal failed - refund: PKR ${withdrawal.amount}`,
+            type: 'REFUND',
+            paymentMethod: 'WALLET',
+          }
         );
 
         throw createAppError(
@@ -258,11 +295,29 @@ class WithdrawalService {
       await withdrawal.markFailed(error.message);
       await withdrawal.save();
 
+      // Update transaction to show failure
+      await Transaction.findOneAndUpdate(
+        { withdrawalRequestId: withdrawalId },
+        {
+          status: TRANSACTION_STATUS.FAILED,
+          failureReason: error.message,
+          metadata: {
+            processedBy: adminId,
+            processedAt: new Date(),
+            error: error.message,
+          }
+        }
+      );
+
       // Refund to wallet
       await walletService.creditWallet(
         withdrawal.userId,
         withdrawal.amount,
-        withdrawal._id.toString()
+        {
+          description: `Withdrawal error - refund: PKR ${withdrawal.amount}`,
+          type: 'REFUND',
+          paymentMethod: 'WALLET',
+        }
       );
 
       throw error;
@@ -289,11 +344,27 @@ class WithdrawalService {
     await withdrawal.cancel(userId);
     await withdrawal.save();
 
+    // Update transaction to show cancellation
+    await Transaction.findOneAndUpdate(
+      { withdrawalRequestId: withdrawalId },
+      {
+        status: TRANSACTION_STATUS.CANCELLED,
+        metadata: {
+          cancelledBy: userId,
+          cancelledAt: new Date(),
+        }
+      }
+    );
+
     // Refund to wallet
     await walletService.creditWallet(
       userId,
       withdrawal.amount,
-      withdrawal._id.toString()
+      {
+        description: `Withdrawal cancelled - refund: PKR ${withdrawal.amount}`,
+        type: 'REFUND',
+        paymentMethod: 'WALLET',
+      }
     );
 
     return withdrawal;
@@ -356,12 +427,45 @@ class WithdrawalService {
     await withdrawal.markFailed(reason || 'Withdrawal rejected by admin');
     await withdrawal.save();
 
+    // Update transaction to show rejection
+    await Transaction.findOneAndUpdate(
+      { withdrawalRequestId: withdrawalId },
+      {
+        status: TRANSACTION_STATUS.FAILED,
+        failureReason: reason || 'Withdrawal rejected by admin',
+        metadata: {
+          rejectedBy: adminId,
+          rejectedAt: new Date(),
+          reason: reason || 'Withdrawal rejected by admin',
+        }
+      }
+    );
+
     // Refund to wallet
     await walletService.creditWallet(
       withdrawal.userId,
       withdrawal.amount,
-      withdrawal._id.toString()
+      {
+        description: `Withdrawal rejected - refund: PKR ${withdrawal.amount}`,
+        type: 'REFUND',
+        paymentMethod: 'WALLET',
+        withdrawalRequestId: withdrawal._id.toString(),
+      }
     );
+
+    // Audit log for rejection
+    await createAuditLog({
+      adminId,
+      action: 'WITHDRAWAL_REJECTED',
+      targetType: 'WithdrawalRequest',
+      targetId: withdrawalId,
+      details: {
+        amount: withdrawal.amount,
+        paymentMethod: withdrawal.paymentMethod,
+        userId: withdrawal.userId?.toString(),
+        reason: reason || 'Withdrawal rejected by admin',
+      },
+    });
 
     return withdrawal;
   }

@@ -47,10 +47,11 @@ export const paymentVerificationRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
-// Rate limit for general payment endpoints (20 per hour)
+// Rate limit for general payment endpoints (100 per hour)
+// This covers read-only operations like getting wallet balance
 export const paymentRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 20,
+  max: 100,
   message: 'Too many payment requests. Please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
