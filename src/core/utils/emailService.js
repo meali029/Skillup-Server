@@ -45,21 +45,6 @@ export const generateEmailVerificationToken = () => {
 
 // Send email verification email
 export const sendEmailVerification = async (email, name, verificationToken) => {
-  // If SendGrid is configured, use it directly (avoids SMTP network/timeouts)
-  if (process.env.SENDGRID_API_KEY) {
-    const backendApiUrl = getBackendApiUrl();
-    const verificationLink = `${backendApiUrl}/api/auth/verify-email?token=${verificationToken}`;
-    const html = `<p>Hi <strong>${name}</strong>,</p><p>Please verify your email by clicking <a href="${verificationLink}">this link</a>.</p>`;
-    const text = `Hi ${name},\nPlease verify your email: ${verificationLink}`;
-    try {
-      await sendWithSendGrid({ to: email, from: process.env.EMAIL_FROM || process.env.EMAIL_USER, subject: 'Verify Your Email - SkillUp', html, text });
-      return { success: true };
-    } catch (err) {
-      console.error('[EmailService] SendGrid send failed (verification):', err?.message || err);
-      throw new Error('Failed to send verification email');
-    }
-  }
-
   try {
     const transporter = createTransporter();
     // CRITICAL: Use backend API URL for verification - the backend handles verification and redirects to frontend
@@ -165,24 +150,6 @@ export const sendEmailVerification = async (email, name, verificationToken) => {
   }
 };
 
-// Helper: send using SendGrid (fallback / primary when API key present)
-import sgMail from '@sendgrid/mail';
-
-const sendWithSendGrid = async (mailOptions) => {
-  if (!process.env.SENDGRID_API_KEY) {
-    throw new Error('SENDGRID_API_KEY not configured');
-  }
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  const msg = {
-    to: mailOptions.to,
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-    subject: mailOptions.subject,
-    html: mailOptions.html,
-    text: mailOptions.text,
-  };
-  return sgMail.send(msg);
-};
-
 // Resend email verification
 export const resendEmailVerification = async (email, name, verificationToken) => {
   const mailOptions = {
@@ -198,14 +165,6 @@ export const resendEmailVerification = async (email, name, verificationToken) =>
 
 // Send OTP email
 export const sendOTPEmail = async (email, otp, name) => {
-  // Prefer SendGrid when configured
-  if (process.env.SENDGRID_API_KEY) {
-    const html = `<p>Hi <strong>${name}</strong>,</p><p>Your OTP code is <strong>${otp}</strong>. It expires in 10 minutes.</p>`;
-    const text = `Hi ${name},\nYour OTP code is ${otp} (expires in 10 minutes)`;
-    await sendWithSendGrid({ to: email, from: process.env.EMAIL_FROM || process.env.EMAIL_USER, subject: 'Password Reset OTP - SkillUp', html, text });
-    return { success: true };
-  }
-
   try {
     const transporter = createTransporter();
     
@@ -317,13 +276,7 @@ export const sendOTPEmail = async (email, otp, name) => {
 };
 
 // Send password reset confirmation email
-export const sendPasswordResetConfirmation = async (email, name) => {  // Prefer SendGrid when configured
-  if (process.env.SENDGRID_API_KEY) {
-    const html = `<p>Hi <strong>${name}</strong>,</p><p>Your password has been successfully reset.</p>`;
-    const text = `Hi ${name},\nYour password has been successfully reset.`;
-    await sendWithSendGrid({ to: email, from: process.env.EMAIL_FROM || process.env.EMAIL_USER, subject: 'Password Reset Successful - SkillUp', html, text });
-    return { success: true };
-  }
+export const sendPasswordResetConfirmation = async (email, name) => {
   try {
     const transporter = createTransporter();
     
@@ -443,24 +396,29 @@ export const sendPasswordResetConfirmation = async (email, name) => {  // Prefer
 
 // Verify email configuration
 export const verifyEmailConfig = async () => {
-  // If SendGrid is configured, consider email service ready (no SMTP check required)
-  if (process.env.SENDGRID_API_KEY) {
-    console.info('[EmailService] SendGrid API key detected - using SendGrid (no SMTP verification)');
-    return true;
-  }
-
-  // Quick sanity checks to fail fast in production when env vars are missing
+  // Quick sanity checks to fail fast when env vars are missing
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-    console.error('❌ Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
+    console.warn('⚠️  Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
+    console.warn('⚠️  Email functionality will be disabled');
     return false;
   }
 
+  // Skip SMTP verification in production to avoid blocking startup
+  // (Many PaaS providers block outbound SMTP ports 25/465/587)
+  if (process.env.NODE_ENV === 'production') {
+    console.info('[EmailService] Running in production - skipping SMTP verification');
+    console.info('[EmailService] Email sending will be attempted at runtime');
+    return true;
+  }
+
+  // In development, verify SMTP connection
   try {
     const transporter = createTransporter();
     // set a short timeout for verification to avoid long startup delays
     const verifyPromise = transporter.verify();
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP verify timeout')), 5000));
     await Promise.race([verifyPromise, timeout]);
+    console.info('✅ SMTP configuration verified successfully');
     return true;
   } catch (error) {
     console.error('❌ Email service configuration error:', error?.message || error);
