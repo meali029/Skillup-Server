@@ -152,6 +152,14 @@ export const sendEmailVerification = async (email, name, verificationToken) => {
 
 // Resend email verification
 export const resendEmailVerification = async (email, name, verificationToken) => {
+  const mailOptions = {
+    to: email,
+    subject: 'Verify Your Email - SkillUp',
+    html: `Please verify`,
+    text: `Please verify`,
+  };
+
+  // Delegate to unified verification sender (handles SendGrid or SMTP)
   return sendEmailVerification(email, name, verificationToken);
 };
 
@@ -388,18 +396,29 @@ export const sendPasswordResetConfirmation = async (email, name) => {
 
 // Verify email configuration
 export const verifyEmailConfig = async () => {
-  // Quick sanity checks to fail fast in production when env vars are missing
+  // Quick sanity checks to fail fast when env vars are missing
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-    console.error('❌ Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
+    console.warn('⚠️  Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
+    console.warn('⚠️  Email functionality will be disabled');
     return false;
   }
 
+  // Skip SMTP verification in production to avoid blocking startup
+  // (Many PaaS providers block outbound SMTP ports 25/465/587)
+  if (process.env.NODE_ENV === 'production') {
+    console.info('[EmailService] Running in production - skipping SMTP verification');
+    console.info('[EmailService] Email sending will be attempted at runtime');
+    return true;
+  }
+
+  // In development, verify SMTP connection
   try {
     const transporter = createTransporter();
     // set a short timeout for verification to avoid long startup delays
     const verifyPromise = transporter.verify();
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP verify timeout')), 5000));
     await Promise.race([verifyPromise, timeout]);
+    console.info('✅ SMTP configuration verified successfully');
     return true;
   } catch (error) {
     console.error('❌ Email service configuration error:', error?.message || error);
