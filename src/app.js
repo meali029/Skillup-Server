@@ -100,18 +100,28 @@ if (process.env.NODE_ENV !== 'test') {
   
   if (mongoUri) {
     try {
-      sessionOptions.store = MongoStore.create({
+      // Build MongoStore config - skip crypto if secret is not properly set
+      const mongoStoreConfig = {
         mongoUrl: mongoUri,
-        touchAfter: 24 * 3600,
-        crypto: {
+        touchAfter: 24 * 3600, // lazy session update (only update if 24h passed)
+      };
+      
+      // Only add crypto if we have a valid secret (at least 32 chars)
+      if (sessionSecret && sessionSecret.length >= 32 && sessionSecret !== "your-super-secret-session-key-change-in-production-min-32-chars") {
+        mongoStoreConfig.crypto = {
           secret: sessionSecret,
-        },
-      });
-      console.info('[Session] MongoDB session store configured successfully');
+        };
+        console.info('[Session] MongoDB session store configured with encryption');
+      } else {
+        console.warn('⚠️  [Session] MongoDB session store configured WITHOUT encryption (set SESSION_SECRET for encryption)');
+      }
+      
+      sessionOptions.store = MongoStore.create(mongoStoreConfig);
+      console.info('[Session] MongoDB session store initialized successfully');
     } catch (err) {
       console.error('[Session] Failed to initialize Mongo session store:', err.message);
-      console.warn('[Session] Falling back to in-memory session store. Set MONGO_URI in production to enable Mongo-backed sessions.');
-      // leave sessionOptions.store undefined -> Express default MemoryStore (not for production)
+      console.warn('[Session] Falling back to in-memory session store.');
+      // leave sessionOptions.store undefined -> Express default MemoryStore
     }
   } else {
     console.error('[Session] MONGO_URI is not set — using in-memory session store.');
