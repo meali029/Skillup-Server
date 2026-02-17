@@ -16,7 +16,7 @@ const userSchema = new mongoose.Schema({
     enum: ["super_admin", "admin", "moderator"],
     // Only set if role is "admin"
   },
-  provider: { type: String, enum: ["local", "google"], default: "local" },
+  provider: { type: String, enum: ["local", "google", "both"], default: "local" },
   
   // Profile information
   bio: { type: String, maxlength: 500 },
@@ -242,6 +242,7 @@ userSchema.methods.checkProfileComplete = function() {
   if (this.role === 'freelancer') {
     const hasFreelancerInfo = Boolean(
       this.skills && 
+      Array.isArray(this.skills) &&
       this.skills.length > 0 && 
       this.hourlyRate && 
       this.hourlyRate > 0 &&
