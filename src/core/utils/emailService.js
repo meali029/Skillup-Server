@@ -360,9 +360,18 @@ export const sendPasswordResetConfirmation = async (email, name) => {
 
 // Verify email configuration
 export const verifyEmailConfig = async () => {
+  // Quick sanity checks to fail fast in production when env vars are missing
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    console.error('❌ Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
+    return false;
+  }
+
   try {
     const transporter = createTransporter();
-    await transporter.verify();
+    // set a short timeout for verification to avoid long startup delays
+    const verifyPromise = transporter.verify();
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP verify timeout')), 5000));
+    await Promise.race([verifyPromise, timeout]);
     return true;
   } catch (error) {
     console.error('❌ Email service configuration error:', error.message);

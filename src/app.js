@@ -85,13 +85,23 @@ const sessionOptions = {
 
 // Avoid connecting to MongoDB for session store when running tests
 if (process.env.NODE_ENV !== 'test') {
-  sessionOptions.store = MongoStore.create({
-    mongoUrl: process.env.MONGO_URI,
-    touchAfter: 24 * 3600,
-    crypto: {
-      secret: process.env.SESSION_SECRET || "your-super-secret-session-key-change-in-production-min-32-chars",
-    },
-  });
+  if (process.env.MONGO_URI) {
+    try {
+      sessionOptions.store = MongoStore.create({
+        mongoUrl: process.env.MONGO_URI,
+        touchAfter: 24 * 3600,
+        crypto: {
+          secret: process.env.SESSION_SECRET || "your-super-secret-session-key-change-in-production-min-32-chars",
+        },
+      });
+    } catch (err) {
+      console.error('[Session] Failed to initialize Mongo session store:', err.message);
+      console.warn('[Session] Falling back to in-memory session store. Set MONGO_URI in production to enable Mongo-backed sessions.');
+      // leave sessionOptions.store undefined -> Express default MemoryStore (not for production)
+    }
+  } else {
+    console.error('[Session] MONGO_URI is not set — using in-memory session store.');
+  }
 }
 
 app.use(session(sessionOptions));
