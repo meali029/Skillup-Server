@@ -6,6 +6,27 @@ import ExcelJS from 'exceljs';
 import { notifyUser } from '../../notifications/notification.service.js';
 
 /**
+ * Helper function to close jobs and trigger middleware
+ * This ensures that the pre-save middleware runs and proposals are auto-rejected
+ */
+const closeJobsWithMiddleware = async (clientId) => {
+  const jobs = await Job.find({ 
+    client: clientId, 
+    status: { $in: ['open', 'draft'] } 
+  });
+  
+  for (const job of jobs) {
+    job.status = 'closed';
+    job.suspendedByAdmin = true;
+    job.suspendedAt = new Date();
+    job.closeReason = 'admin_action';
+    await job.save(); // This triggers the pre-save middleware
+  }
+  
+  return jobs.length;
+};
+
+/**
  * Get all users with advanced filters
  */
 export const getAllUsers = async (filters) => {
@@ -148,21 +169,9 @@ export const suspendUser = async (userId, reason, adminId) => {
 
   await user.save();
 
-  // Cascade: Close all jobs if user is a client
+  // Cascade: Close all jobs if user is a client (triggers middleware to reject proposals)
   if (user.role === 'client') {
-    await Job.updateMany(
-      { 
-        client: userId, 
-        status: { $in: ['open', 'draft'] } 
-      },
-      { 
-        $set: { 
-          status: 'closed',
-          suspendedByAdmin: true,
-          suspendedAt: new Date()
-        } 
-      }
-    );
+    await closeJobsWithMiddleware(userId);
   }
 
   // Cascade: Close all proposals if user is a freelancer
@@ -225,21 +234,9 @@ export const banUser = async (userId, reason, adminId) => {
 
   await user.save();
 
-  // Cascade: Close all jobs if user is a client
+  // Cascade: Close all jobs if user is a client (triggers middleware to reject proposals)
   if (user.role === 'client') {
-    await Job.updateMany(
-      { 
-        client: userId, 
-        status: { $in: ['open', 'draft'] } 
-      },
-      { 
-        $set: { 
-          status: 'closed',
-          suspendedByAdmin: true,
-          suspendedAt: new Date()
-        } 
-      }
-    );
+    await closeJobsWithMiddleware(userId);
   }
 
   // Cascade: Close all proposals if user is a freelancer

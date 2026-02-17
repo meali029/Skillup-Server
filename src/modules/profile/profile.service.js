@@ -1,6 +1,68 @@
 import User from "../../models/User.js";
 import { AppError, createAppError } from "../../core/errors/index.js";
 
+// Profile Completeness Configuration
+const FREELANCER_FIELDS = [
+  { field: 'name', label: 'Name', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'avatar', label: 'Profile Picture', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'title', label: 'Professional Title', check: (v) => typeof v === 'string' && v.trim().length >= 5 },
+  { field: 'bio', label: 'Bio (50+ chars)', check: (v) => typeof v === 'string' && v.trim().length >= 50 },
+  { field: 'location', label: 'Location', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'phone', label: 'Phone Number', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'skills', label: 'Skills (3+)', check: (v) => Array.isArray(v) && v.length >= 3 },
+  { field: 'hourlyRate', label: 'Hourly Rate', check: (v) => typeof v === 'number' && v > 0 },
+  { field: 'experience', label: 'Experience Level', check: (v) => typeof v === 'string' && ['beginner', 'intermediate', 'expert'].includes(v) },
+  { field: 'languages', label: 'Languages', check: (v) => Array.isArray(v) && v.length >= 1 },
+];
+
+const CLIENT_FIELDS = [
+  { field: 'name', label: 'Name', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'avatar', label: 'Profile Picture', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'bio', label: 'Bio (30+ chars)', check: (v) => typeof v === 'string' && v.trim().length >= 30 },
+  { field: 'location', label: 'Location', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'companyName', label: 'Company Name', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+  { field: 'companySize', label: 'Company Size', check: (v) => typeof v === 'string' && ['1-10', '11-50', '51-200', '201-500', '500+'].includes(v) },
+  { field: 'industry', label: 'Industry', check: (v) => typeof v === 'string' && v.trim().length > 0 },
+];
+
+/**
+ * Calculate profile completeness percentage for a user
+ * 
+ * @param {Object} user - The user document
+ * @returns {Object|null} Completeness data or null for admin/undefined role
+ */
+export const calculateProfileCompleteness = (user) => {
+  if (!user || !user.role || user.role === 'admin' || user.role === 'super_admin') {
+    return null;
+  }
+
+  const fields = user.role === 'freelancer' ? FREELANCER_FIELDS : CLIENT_FIELDS;
+  const totalFields = fields.length;
+  
+  const filledFields = [];
+  const missingFields = [];
+
+  fields.forEach(({ field, label, check }) => {
+    const value = user[field];
+    if (check(value)) {
+      filledFields.push(field);
+    } else {
+      missingFields.push(label || field);
+    }
+  });
+
+  const filledCount = filledFields.length;
+  const percentage = Math.round((filledCount / totalFields) * 100);
+
+  return {
+    percentage,
+    filledFields: filledCount,
+    totalFields,
+    missingFields,
+    isComplete: percentage === 100,
+  };
+};
+
 export const getProfile = async (userId) => {
   const user = await User.findById(userId);
   
@@ -13,7 +75,7 @@ export const getProfile = async (userId) => {
 
 export const updateProfile = async (userId, updateData) => {
   const allowedFields = [
-    'name', 'bio', 'location', 'phone', 'website',
+    'name', 'bio', 'location', 'phone', 'website', 'title',
     'skills', 'hourlyRate', 'experience',
     'companyName', 'companySize', 'industry',
     'languages', 'availability'

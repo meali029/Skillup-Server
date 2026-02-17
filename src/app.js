@@ -3,6 +3,9 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import MongoStore from "connect-mongo";
 const baseDir = process.cwd();
+import swaggerUi from "swagger-ui-express";
+import swaggerSpec from "./config/swagger.js";
+
 
 // ESM-safe __filename and __dirname resolution (compatible with CommonJS and ESM)
 // We avoid direct `import.meta` usage at parse time by using a Function wrapper so
@@ -48,7 +51,9 @@ import userRoutes from "./modules/users/user.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
 import disputeRoutes from "./modules/disputes/dispute.routes.js";
 import paymentRoutes from "./modules/payments/payment.routes.js";
+import reviewRoutes from "./modules/reviews/review.routes.js";
 import paymentManagementRoutes from "./modules/admin/payments/payment-management.routes.js";
+import uploadRoutes from "./modules/uploads/upload.routes.js";
 import { errorHandler, createAppError } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
@@ -249,6 +254,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/disputes", disputeRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/uploads", uploadRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);
@@ -262,6 +269,8 @@ app.use("/api/admin/settings", adminSettingsRoutes);
 app.use("/api/admin/health", healthRoutes);
 app.use("/api/admin/env-vars", envVarsRoutes);
 app.use("/api/admin/payments", paymentManagementRoutes);
+
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.all("*", (req, res, next) => {
   next(createAppError(`Cannot find ${req.originalUrl} on this server`, 404));

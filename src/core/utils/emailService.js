@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 // Create reusable transporter
 const createTransporter = () => {
@@ -11,6 +12,133 @@ const createTransporter = () => {
       pass: process.env.EMAIL_PASSWORD,
     },
   });
+};
+
+// Get frontend URL from environment - CRITICAL for local/production consistency
+const getFrontendUrl = () => {
+  // Use FRONTEND_URL first, fallback to CLIENT_URL for backward compatibility
+  const url = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
+  // Remove trailing slash if present
+  return url.replace(/\/$/, '');
+};
+
+// Get backend API URL for email verification links
+const getBackendApiUrl = () => {
+  // Use API_URL or construct from PORT
+  const port = process.env.PORT || 5000;
+  const url = process.env.API_URL || `http://localhost:${port}`;
+  // Remove trailing slash if present
+  return url.replace(/\/$/, '');
+};
+
+// Generate email verification token
+export const generateEmailVerificationToken = () => {
+  return crypto.randomBytes(32).toString('hex');
+};
+
+// Send email verification email
+export const sendEmailVerification = async (email, name, verificationToken) => {
+  try {
+    const transporter = createTransporter();
+    // CRITICAL: Use backend API URL for verification - the backend handles verification and redirects to frontend
+    const backendApiUrl = getBackendApiUrl();
+    const verificationLink = `${backendApiUrl}/api/auth/verify-email?token=${verificationToken}`;
+    const mailOptions = {
+      from: `"SkillUp" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Verify Your Email - SkillUp',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #2F3E46; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+            .header { background: linear-gradient(135deg, #84A98C 0%, #52796F 100%); padding: 40px 30px; text-align: center; }
+            .header h1 { color: #ffffff; font-size: 28px; font-weight: 600; margin: 0; }
+            .header p { color: #CAD2C5; font-size: 14px; margin-top: 8px; }
+            .content { padding: 40px 30px; background: #ffffff; }
+            .greeting { font-size: 16px; color: #2F3E46; margin-bottom: 20px; }
+            .greeting strong { color: #52796F; }
+            .message { font-size: 15px; color: #354F52; margin-bottom: 30px; line-height: 1.7; }
+            .button-container { text-align: center; margin: 30px 0; }
+            .verify-button { display: inline-block; background: linear-gradient(135deg, #84A98C 0%, #52796F 100%); color: #ffffff; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; }
+            .verify-button:hover { opacity: 0.9; }
+            .link-box { background: #F8F9FA; border: 1px solid #CAD2C5; border-radius: 8px; padding: 15px; margin: 20px 0; word-break: break-all; font-size: 12px; color: #52796F; }
+            .warning-box { background: #FFF9E6; border-left: 4px solid #84A98C; padding: 20px; margin: 30px 0; border-radius: 6px; }
+            .warning-box strong { color: #52796F; font-size: 15px; display: block; margin-bottom: 10px; }
+            .warning-box p { color: #354F52; font-size: 14px; margin: 5px 0; }
+            .footer { background: #2F3E46; padding: 30px; text-align: center; }
+            .footer p { color: #CAD2C5; font-size: 13px; margin: 5px 0; }
+            .footer a { color: #84A98C; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>✉️ Email Verification</h1>
+              <p>One more step to activate your account</p>
+            </div>
+            <div class="content">
+              <p class="greeting">Hi <strong>${name}</strong>,</p>
+              <p class="message">Welcome to SkillUp! Please verify your email address to complete your registration and access all features of the platform.</p>
+              
+              <div class="button-container">
+                <a href="${verificationLink}" class="verify-button">Verify Email Address</a>
+              </div>
+              
+              <p class="message" style="font-size: 13px; text-align: center; color: #666;">
+                Or copy and paste this link in your browser:
+              </p>
+              <div class="link-box">
+                ${verificationLink}
+              </div>
+              
+              <div class="warning-box">
+                <strong>⏱ Link Expiry</strong>
+                <p>This verification link will expire in 24 hours.</p>
+                <p>If you didn't create an account with SkillUp, please ignore this email.</p>
+              </div>
+            </div>
+            <div class="footer">
+              <p><strong style="color: #84A98C;">SkillUp</strong></p>
+              <p>Pakistan's Smart Freelancing Platform</p>
+              <p>© ${new Date().getFullYear()} SkillUp. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Hi ${name},
+        
+        Welcome to SkillUp! Please verify your email address to complete your registration.
+        
+        Click the link below to verify your email:
+        ${verificationLink}
+        
+        This link will expire in 24 hours.
+        
+        If you didn't create an account with SkillUp, please ignore this email.
+        
+        © ${new Date().getFullYear()} SkillUp - Pakistan's Smart Freelancing Platform
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    return { success: true };
+  } catch (error) {
+    console.error('[EmailService] Failed to send verification email:', error);
+    throw new Error('Failed to send verification email');
+  }
+};
+
+// Resend email verification
+export const resendEmailVerification = async (email, name, verificationToken) => {
+  return sendEmailVerification(email, name, verificationToken);
 };
 
 // Send OTP email

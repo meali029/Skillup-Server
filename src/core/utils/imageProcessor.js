@@ -6,9 +6,10 @@ import fs from 'fs';
 const __dirname = process.cwd();
 
 /**
- * Process and compress CNIC image
+ * Process and compress CNIC image from file path (legacy - for local storage)
  * @param {string} filePath - Path to the original uploaded image
  * @returns {Promise<string>} - Path to the processed image
+ * @deprecated Use processCNICImageBuffer for Cloudinary storage
  */
 export const processCNICImage = async (filePath) => {
   try {
@@ -35,7 +36,64 @@ export const processCNICImage = async (filePath) => {
 };
 
 /**
- * Delete CNIC images
+ * Process and compress CNIC image from buffer (for Cloudinary storage)
+ * @param {Buffer} buffer - Image buffer
+ * @param {Object} options - Processing options
+ * @returns {Promise<Buffer>} - Processed image buffer
+ */
+export const processCNICImageBuffer = async (buffer, options = {}) => {
+  const {
+    maxWidth = 1600,
+    maxHeight = 1200,
+    quality = 85,
+    format = 'jpeg',
+  } = options;
+
+  try {
+    return await sharp(buffer)
+      .resize(maxWidth, maxHeight, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({
+        quality,
+        progressive: true,
+      })
+      .toBuffer();
+  } catch (error) {
+    console.error('Error processing CNIC image buffer:', error);
+    throw new Error('Failed to process CNIC image');
+  }
+};
+
+/**
+ * Validate image buffer
+ * @param {Buffer} buffer - Image buffer to validate
+ * @returns {Promise<Object>} - Validation result with metadata
+ */
+export const validateImageBuffer = async (buffer) => {
+  try {
+    const metadata = await sharp(buffer).metadata();
+    
+    return {
+      valid: true,
+      metadata: {
+        width: metadata.width,
+        height: metadata.height,
+        format: metadata.format,
+        size: buffer.length,
+      },
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Invalid image: ${error.message}`,
+    };
+  }
+};
+
+/**
+ * Delete CNIC images from local storage (legacy)
  * @param {string} frontImagePath - Path to front image
  * @param {string} backImagePath - Path to back image
  */

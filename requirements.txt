@@ -1,0 +1,13 @@
+# Python dependencies for CNIC OCR extraction
+# Install with: pip install -r requirements.txt
+
+# PaddleOCR and dependencies
+paddlepaddle==2.6.0
+paddleocr==2.7.3
+
+# Image processing
+opencv-python==4.9.0.80
+numpy>=1.21.0
+
+# Optional: For GPU acceleration (comment out if not using GPU)
+# paddlepaddle-gpu==2.6.0

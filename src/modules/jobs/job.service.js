@@ -5,6 +5,31 @@ import { AppError } from '../../core/errors/index.js';
 import matchingService from '../../services/matching/matching.service.js';
 import aiService from '../../services/ai/ai.service.js';
 import freelancerHistoryService from '../../services/freelancer-history.service.js';
+import notificationService from '../notifications/notification.service.js';
+
+// Close reasons enum
+export const CLOSE_REASONS = {
+  HIRED_ON_PLATFORM: 'hired-on-platform',
+  HIRED_ELSEWHERE: 'hired-elsewhere',
+  NO_LONGER_NEEDED: 'no-longer-needed',
+  BUDGET_ISSUES: 'budget-issues',
+  OTHER: 'other'
+};
+
+// Valid status transitions
+const STATUS_TRANSITIONS = {
+  'draft': ['open', 'closed'],
+  'open': ['in-progress', 'closed'],
+  'in-progress': ['completed', 'closed'],
+  'completed': [],
+  'closed': []
+};
+
+// Validate if status transition is allowed
+export const canChangeStatus = (currentStatus, newStatus) => {
+  const allowedTransitions = STATUS_TRANSITIONS[currentStatus] || [];
+  return allowedTransitions.includes(newStatus);
+};
 
 export const createJob = async (jobData, clientId) => {
   const job = new Job({
@@ -130,13 +155,22 @@ export const updateJob = async (jobId, userId, updateData) => {
     throw AppError('Job not found or unauthorized', 404);
   }
 
+  // Industry-standard restrictions:
+  // 1. Cannot edit if job has any proposals (protects proposal integrity)
+  // 2. Cannot edit if job is in-progress, completed, or cancelled (contract formed or work done)
+  
   if (job.proposalsCount > 0) {
-    const restrictedFields = ['budgetAmount', 'budgetType', 'category'];
-    const hasRestrictedUpdate = restrictedFields.some(field => updateData[field]);
-    
-    if (hasRestrictedUpdate) {
-      throw AppError('Cannot update budget or category after receiving proposals', 400);
-    }
+    throw AppError(
+      'Cannot edit job after receiving proposals. This protects the integrity of submitted proposals.', 
+      403
+    );
+  }
+
+  if (['in-progress', 'completed', 'cancelled', 'closed'].includes(job.status)) {
+    throw AppError(
+      `Cannot edit ${job.status} jobs. Only draft and open jobs without proposals can be edited.`,
+      403
+    );
   }
 
   Object.assign(job, updateData);
@@ -155,7 +189,7 @@ export const deleteJob = async (jobId, userId) => {
   });
 
   if (!job) {
-    throw AppError('Job not found or unauthorized', 404);
+    throw new AppError('Job not found or unauthorized', 404);
   }
 
   const wasOpen = job.status === 'open';
@@ -167,7 +201,7 @@ export const deleteJob = async (jobId, userId) => {
     job.isActive = false;
     await job.save();
   } else {
-    throw AppError('Cannot delete job with active proposals. Close the job instead.', 400);
+    throw new AppError('Cannot delete job with active proposals. Close the job instead.', 400);
   }
   
   const updates = { $inc: { postedJobsCount: -1 } };
@@ -212,7 +246,7 @@ export const getClientJobs = async (clientId, options = {}) => {
   };
 };
 
-export const closeJob = async (jobId, userId) => {
+export const closeJob = async (jobId, userId, closeReason = CLOSE_REASONS.OTHER, closeNote = '') => {
   const job = await Job.findOne({
     _id: jobId,
     client: userId,
@@ -221,16 +255,183 @@ export const closeJob = async (jobId, userId) => {
   });
 
   if (!job) {
-    throw AppError('Job not found or unauthorized', 404);
+    throw new AppError('Job not found or unauthorized', 404);
+  }
+
+  // Check if job has active contract
+  const Contract = (await import('../../models/Contract.js')).default;
+  const activeContract = await Contract.findOne({
+    job: jobId,
+    status: { $in: ['active', 'in-progress'] }
+  });
+
+  if (activeContract) {
+    throw new AppError('Cannot close job with active contract. Complete or cancel the contract first.', 400);
   }
 
   const previousStatus = job.status;
+  
+  // Validate status transition
+  if (!canChangeStatus(job.status, 'closed')) {
+    throw new AppError(`Cannot close job with status "${job.status}"`, 400);
+  }
+
+  // Get all pending proposals before closing
+  const pendingProposals = await Proposal.find({
+    job: jobId,
+    status: 'pending'
+  }).populate('freelancer', 'name email');
+
+  // Get all accepted proposals for notification (but don't reject them)
+  const acceptedProposals = await Proposal.find({
+    job: jobId,
+    status: 'accepted'
+  }).populate('freelancer', 'name email');
+
+  // Reject ONLY pending proposals (not accepted ones - industry standard)
+  if (pendingProposals.length > 0) {
+    await Proposal.updateMany(
+      { job: jobId, status: 'pending' },
+      { 
+        status: 'rejected',
+        rejectedAt: new Date(),
+        rejectionReason: 'Job closed by client'
+      }
+    );
+
+    // Notify freelancers about rejection
+    for (const proposal of pendingProposals) {
+      await notificationService.createNotification({
+        user: proposal.freelancer._id,
+        type: 'proposal_rejected',
+        title: 'Job Closed',
+        message: `The job "${job.title}" has been closed by the client. Your proposal was automatically rejected.`,
+        relatedJob: jobId,
+        relatedProposal: proposal._id
+      });
+    }
+  }
+
+  // Notify freelancers with ACCEPTED proposals about job closure (but keep proposal accepted)
+  if (acceptedProposals.length > 0) {
+    for (const proposal of acceptedProposals) {
+      await notificationService.createNotification({
+        user: proposal.freelancer._id,
+        type: 'job_closed',
+        title: 'Job Closed - Action May Be Required',
+        message: `The job "${job.title}" has been closed. Your accepted proposal remains valid. Please contact the client regarding project status.`,
+        relatedJob: jobId,
+        relatedProposal: proposal._id
+      });
+    }
+  }
+
+  // Update job status
   job.status = 'closed';
+  job.closedAt = new Date();
+  job.closeReason = closeReason;
+  job.closeNote = closeNote;
   await job.save();
   
+  // Update client stats
   if (previousStatus === 'open') {
     await User.findByIdAndUpdate(userId, {
       $inc: { activeJobsCount: -1 }
+    });
+  }
+
+  return {
+    job,
+    rejectedProposalsCount: pendingProposals.length,
+    acceptedProposalsCount: acceptedProposals.length
+  };
+};
+
+// Mark job as in-progress (when contract starts)
+export const markJobInProgress = async (jobId) => {
+  const job = await Job.findById(jobId);
+  
+  if (!job) {
+    throw new AppError('Job not found', 404);
+  }
+
+  if (!canChangeStatus(job.status, 'in-progress')) {
+    throw new AppError(`Cannot mark job as in-progress from status "${job.status}"`, 400);
+  }
+
+  const previousStatus = job.status;
+  job.status = 'in-progress';
+  job.startedAt = new Date();
+  await job.save();
+
+  // Update client stats if moving from open
+  if (previousStatus === 'open') {
+    await User.findByIdAndUpdate(job.client, {
+      $inc: { activeJobsCount: -1 }
+    });
+  }
+
+  return job;
+};
+
+// Mark job as completed (when contract completes)
+export const markJobCompleted = async (jobId) => {
+  const job = await Job.findById(jobId);
+  
+  if (!job) {
+    throw new AppError('Job not found', 404);
+  }
+
+  if (!canChangeStatus(job.status, 'completed')) {
+    throw new AppError(`Cannot mark job as completed from status "${job.status}"`, 400);
+  }
+
+  job.status = 'completed';
+  job.completedAt = new Date();
+  await job.save();
+
+  return job;
+};
+
+// Update job status manually (for client control)
+export const updateJobStatus = async (jobId, userId, newStatus) => {
+  const job = await Job.findOne({
+    _id: jobId,
+    client: userId,
+    isActive: true,
+    deletedAt: null,
+  });
+
+  if (!job) {
+    throw new AppError('Job not found or unauthorized', 404);
+  }
+
+  if (!canChangeStatus(job.status, newStatus)) {
+    throw new AppError(`Cannot change status from "${job.status}" to "${newStatus}"`, 400);
+  }
+
+  const previousStatus = job.status;
+  job.status = newStatus;
+
+  // Set appropriate timestamp
+  if (newStatus === 'in-progress') {
+    job.startedAt = new Date();
+  } else if (newStatus === 'completed') {
+    job.completedAt = new Date();
+  } else if (newStatus === 'closed') {
+    job.closedAt = new Date();
+  }
+
+  await job.save();
+
+  // Update client stats
+  if (previousStatus === 'open' && newStatus !== 'open') {
+    await User.findByIdAndUpdate(userId, {
+      $inc: { activeJobsCount: -1 }
+    });
+  } else if (previousStatus !== 'open' && newStatus === 'open') {
+    await User.findByIdAndUpdate(userId, {
+      $inc: { activeJobsCount: 1 }
     });
   }
 
@@ -374,10 +575,8 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  console.log(`[Recommendations] Found ${proposals.length} pending proposals for job ${jobId}`);
-
   if (proposals.length === 0) {
-    console.log('[Recommendations] No proposals found for this job');
+
     return [];
   }
 
@@ -389,8 +588,6 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
            freelancer.isBanned !== true &&
            freelancer.role === 'freelancer';
   });
-
-  console.log(`[Recommendations] ${validProposals.length} valid proposals after filtering`);
 
   if (validProposals.length === 0) {
     return [];
@@ -424,8 +621,6 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
   try {
     // Use AI to rank proposals based on proposal quality, profile, and contract history
     const aiRankings = await aiService.rankProposalsWithAI(job, proposalsWithData);
-    
-    console.log(`[Recommendations] AI ranked ${aiRankings.length} proposals`);
 
     // Transform to expected format with proposal data included
     const rankedFreelancers = aiRankings.map((ranking) => {
@@ -470,8 +665,6 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
       const score = f.matchScore || f.aiScore || 0;
       return score >= minScore;
     });
-    
-    console.log(`[Recommendations] After filtering (minScore=${minScore}): ${filteredFreelancers.length} freelancers`);
 
     return filteredFreelancers.slice(0, limit);
   } catch (error) {

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { createAppError } from '../../core/errors/index.js';
 import paymentModeService from './paymentMode.service.js';
 import mockPaymentService from './mockPayment.service.js';
+import { getEnv } from '../../core/utils/envLoader.js';
 
 /**
  * Easypaisa Payment Gateway Service
@@ -10,36 +11,43 @@ import mockPaymentService from './mockPayment.service.js';
  */
 class EasypaisaService {
   constructor() {
-    // Check payment mode (testing or production)
-    this.isTesting = paymentModeService.isTestingModeSync();
-    
-    if (this.isTesting) {
-      // In testing mode, use mock service
-      this.mockService = mockPaymentService;
-    } else {
-      // In production mode, load real credentials
-      this.merchantId = process.env.EASYPAISA_MERCHANT_ID;
-      this.storeId = process.env.EASYPAISA_STORE_ID;
-      this.hashKey = process.env.EASYPAISA_HASH_KEY;
-      this.returnUrl = process.env.EASYPAISA_RETURN_URL || `${process.env.CLIENT_URL}/payment/callback/easypaisa`;
-      this.sandbox = process.env.EASYPAISA_SANDBOX === 'true';
-      this.baseUrl = this.sandbox
-        ? 'https://easypaystg.easypaisa.com.pk'
-        : 'https://easypay.easypaisa.com.pk';
-    }
+    this.mockService = mockPaymentService;
+  }
+
+  /**
+   * Get credentials dynamically (reads from DB cache)
+   */
+  getCredentials() {
+    return {
+      merchantId: getEnv('EASYPAISA_MERCHANT_ID'),
+      storeId: getEnv('EASYPAISA_STORE_ID'),
+      hashKey: getEnv('EASYPAISA_HASH_KEY'),
+      returnUrl: getEnv('EASYPAISA_RETURN_URL') || `${getEnv('CLIENT_URL')}/payment/callback/easypaisa`,
+      sandbox: getEnv('EASYPAISA_SANDBOX') === 'true',
+    };
+  }
+
+  /**
+   * Get base URL based on sandbox mode
+   */
+  getBaseUrl() {
+    const { sandbox } = this.getCredentials();
+    return sandbox
+      ? 'https://easypaystg.easypaisa.com.pk'
+      : 'https://easypay.easypaisa.com.pk';
   }
 
   /**
    * Generate secure hash for Easypaisa payment
    */
-  generateHash(data) {
+  generateHash(data, hashKey) {
     const string = Object.keys(data)
       .sort()
       .map((key) => `${key}=${data[key]}`)
       .join('&');
     return crypto
       .createHash('sha256')
-      .update(string + this.hashKey)
+      .update(string + hashKey)
       .digest('hex')
       .toUpperCase();
   }
@@ -58,10 +66,12 @@ class EasypaisaService {
       return this.mockService.initializePayment(paymentData);
     }
 
+    // PRODUCTION MODE - Use real Easypaisa API
     const { amount, orderId, customerEmail, customerName, customerPhone } = paymentData;
+    const creds = this.getCredentials();
 
-    if (!this.merchantId || !this.storeId || !this.hashKey) {
-      throw createAppError('Easypaisa credentials not configured', 500);
+    if (!creds.merchantId || !creds.storeId || !creds.hashKey) {
+      throw createAppError('Easypaisa credentials not configured. Please configure in Admin Settings.', 500);
     }
 
     const amountStr = amount.toString();
@@ -69,12 +79,12 @@ class EasypaisaService {
     const transactionRefNumber = `TXN${Date.now()}`;
 
     const payload = {
-      storeId: this.storeId,
-      merchantId: this.merchantId,
+      storeId: creds.storeId,
+      merchantId: creds.merchantId,
       orderRefNum: orderId,
       orderDateTime: orderDateTime,
       orderAmount: amountStr,
-      postBackURL: this.returnUrl,
+      postBackURL: creds.returnUrl,
       transactionRefNumber: transactionRefNumber,
       merchantName: 'SkillUp',
       merchantEmail: 'support@skillup.pk',
@@ -85,16 +95,15 @@ class EasypaisaService {
     };
 
     // Generate secure hash
-    payload.hashRequest = this.generateHash(payload);
+    payload.hashRequest = this.generateHash(payload, creds.hashKey);
+    const baseUrl = this.getBaseUrl();
 
     try {
-      // In production, this would POST to Easypaisa API
-      // For now, return mock response structure
-      if (this.sandbox) {
+      if (creds.sandbox) {
         // Sandbox mode - return mock payment URL
         return {
           success: true,
-          paymentUrl: `${this.baseUrl}/payment?orderRef=${orderId}&txnRef=${transactionRefNumber}`,
+          paymentUrl: `${baseUrl}/payment?orderRef=${orderId}&txnRef=${transactionRefNumber}`,
           transactionRef: transactionRefNumber,
           orderId: orderId,
         };
@@ -102,7 +111,7 @@ class EasypaisaService {
 
       // Production mode - make actual API call
       const response = await axios.post(
-        `${this.baseUrl}/api/payment/initiate`,
+        `${baseUrl}/api/payment/initiate`,
         payload,
         {
           headers: {
@@ -118,7 +127,7 @@ class EasypaisaService {
 
       return {
         success: true,
-        paymentUrl: response.data.paymentUrl || `${this.baseUrl}/payment?orderRef=${orderId}`,
+        paymentUrl: response.data.paymentUrl || `${baseUrl}/payment?orderRef=${orderId}`,
         transactionRef: transactionRefNumber,
         orderId: orderId,
       };
@@ -156,6 +165,9 @@ class EasypaisaService {
       return this.mockService.verifyPayment(callbackData);
     }
 
+    // PRODUCTION MODE
+    const creds = this.getCredentials();
+
     const {
       orderRefNum,
       orderStatus,
@@ -165,7 +177,7 @@ class EasypaisaService {
     } = callbackData;
 
     // Verify secure hash
-    const calculatedHash = this.generateHash(callbackData);
+    const calculatedHash = this.generateHash(callbackData, creds.hashKey);
     if (calculatedHash !== hashResponse) {
       throw createAppError('Invalid payment hash', 400);
     }
@@ -198,10 +210,12 @@ class EasypaisaService {
       return this.mockService.processWithdrawal(withdrawalData);
     }
 
+    // PRODUCTION MODE
+    const creds = this.getCredentials();
     const { amount, accountNumber, phoneNumber, cnic } = withdrawalData;
 
-    if (!this.merchantId || !this.storeId || !this.hashKey) {
-      throw createAppError('Easypaisa credentials not configured', 500);
+    if (!creds.merchantId || !creds.storeId || !creds.hashKey) {
+      throw createAppError('Easypaisa credentials not configured. Please configure in Admin Settings.', 500);
     }
 
     const amountStr = amount.toString();
@@ -209,8 +223,8 @@ class EasypaisaService {
     const orderDateTime = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
 
     const payload = {
-      storeId: this.storeId,
-      merchantId: this.merchantId,
+      storeId: creds.storeId,
+      merchantId: creds.merchantId,
       transactionRefNumber: transactionRefNumber,
       orderDateTime: orderDateTime,
       orderAmount: amountStr,
@@ -220,10 +234,11 @@ class EasypaisaService {
     };
 
     // Generate hash
-    payload.hashRequest = this.generateHash(payload);
+    payload.hashRequest = this.generateHash(payload, creds.hashKey);
+    const baseUrl = this.getBaseUrl();
 
     try {
-      if (this.sandbox) {
+      if (creds.sandbox) {
         // Sandbox mode - return mock success
         return {
           success: true,
@@ -236,7 +251,7 @@ class EasypaisaService {
 
       // Production mode - make actual API call
       const response = await axios.post(
-        `${this.baseUrl}/api/withdrawal`,
+        `${baseUrl}/api/withdrawal`,
         payload,
         {
           headers: {

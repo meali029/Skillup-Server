@@ -7,6 +7,129 @@ import { AppError, createAppError } from "../../core/errors/index.js";
 import { notifyUser } from "../notifications/notification.service.js";
 import aiService from "../../services/ai/ai.service.js";
 
+// Weekly Proposal Limit Constants
+const WEEKLY_PROPOSAL_LIMIT = 20;
+const LIMIT_WINDOW_DAYS = 7;
+
+// Edit Window Constants
+const EDIT_WINDOW_HOURS = 6;
+
+/**
+ * Check if a proposal can be edited
+ * Conditions: 
+ * - Status must be "pending"
+ * - Within 6 hours of creation
+ * - Client has not viewed it yet
+ * 
+ * @param {Object} proposal - The proposal document
+ * @returns {Object} { canEdit, reason }
+ */
+const checkCanEditProposal = (proposal) => {
+  if (proposal.status !== "pending") {
+    return { canEdit: false, reason: "Only pending proposals can be edited" };
+  }
+
+  if (proposal.clientViewed) {
+    return { canEdit: false, reason: "Cannot edit after client has viewed the proposal" };
+  }
+
+  const hoursElapsed = (Date.now() - new Date(proposal.createdAt).getTime()) / (1000 * 60 * 60);
+  if (hoursElapsed >= EDIT_WINDOW_HOURS) {
+    return { canEdit: false, reason: `Edit window expired. Proposals can only be edited within ${EDIT_WINDOW_HOURS} hours of submission` };
+  }
+
+  return { canEdit: true, reason: null };
+};
+
+/**
+ * Get the count of proposals submitted by a freelancer in the last 7 days
+ * Excludes withdrawn proposals (they don't count toward the limit)
+ * 
+ * @param {string} freelancerId - The freelancer's user ID
+ * @returns {Promise<{count: number, oldestProposal: Date|null}>}
+ */
+const getWeeklyProposalCount = async (freelancerId) => {
+  const windowStart = new Date(Date.now() - LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  
+  // Count non-withdrawn proposals in the window
+  const count = await Proposal.countDocuments({
+    freelancerId,
+    createdAt: { $gte: windowStart },
+    status: { $ne: 'withdrawn' },
+  });
+  
+  // Find the oldest proposal in window (for reset time calculation)
+  const oldestProposal = await Proposal.findOne({
+    freelancerId,
+    createdAt: { $gte: windowStart },
+    status: { $ne: 'withdrawn' },
+  })
+    .sort({ createdAt: 1 })
+    .select('createdAt')
+    .lean();
+  
+  return {
+    count,
+    oldestProposalDate: oldestProposal?.createdAt || null,
+  };
+};
+
+/**
+ * Check if freelancer has exceeded weekly proposal limit
+ * 
+ * @param {string} freelancerId - The freelancer's user ID
+ * @throws {AppError} If limit is exceeded (429)
+ */
+const checkWeeklyProposalLimit = async (freelancerId) => {
+  const { count, oldestProposalDate } = await getWeeklyProposalCount(freelancerId);
+  
+  if (count >= WEEKLY_PROPOSAL_LIMIT) {
+    // Calculate when the oldest proposal will fall outside the window
+    const resetsAt = oldestProposalDate 
+      ? new Date(oldestProposalDate.getTime() + LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+      : null;
+    
+    const error = createAppError(
+      `Weekly proposal limit exceeded. You have submitted ${count} proposals in the last 7 days. Maximum allowed: ${WEEKLY_PROPOSAL_LIMIT}.`,
+      429
+    );
+    error.code = 'PROPOSAL_LIMIT_EXCEEDED';
+    error.details = {
+      limit: WEEKLY_PROPOSAL_LIMIT,
+      used: count,
+      remaining: 0,
+      resetsAt,
+    };
+    throw error;
+  }
+};
+
+/**
+ * Get proposal limit status for a freelancer
+ * 
+ * @param {string} freelancerId - The freelancer's user ID
+ * @returns {Promise<Object>} Limit status details
+ */
+export const getProposalLimitStatus = async (freelancerId) => {
+  const { count, oldestProposalDate } = await getWeeklyProposalCount(freelancerId);
+  
+  const remaining = Math.max(0, WEEKLY_PROPOSAL_LIMIT - count);
+  
+  // Calculate reset time (when oldest proposal exits the window)
+  const resetsAt = oldestProposalDate && count >= WEEKLY_PROPOSAL_LIMIT
+    ? new Date(oldestProposalDate.getTime() + LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+    : null;
+  
+  return {
+    limit: WEEKLY_PROPOSAL_LIMIT,
+    used: count,
+    remaining,
+    windowDays: LIMIT_WINDOW_DAYS,
+    resetsAt,
+    canSubmit: count < WEEKLY_PROPOSAL_LIMIT,
+  };
+};
+
 export const createProposal = async (userId, proposalData) => {
   const { jobId, coverLetter, bidAmount, deliveryTime, attachments } = proposalData;
 
@@ -17,6 +140,9 @@ export const createProposal = async (userId, proposalData) => {
   if (user.role !== "freelancer") {
     throw createAppError("Only freelancers can submit proposals", 403);
   }
+
+  // Check weekly proposal limit BEFORE any other validation
+  await checkWeeklyProposalLimit(userId);
 
   const job = await Job.findById(jobId);
   if (!job) {
@@ -68,6 +194,14 @@ export const createProposal = async (userId, proposalData) => {
     $inc: { proposalsCount: 1 }
   });
 
+  // Update freelancer's proposal statistics
+  await User.findByIdAndUpdate(userId, {
+    $inc: { 
+      appliedJobsCount: 1,
+      activeProposalsCount: 1
+    }
+  });
+
   // Notify job owner (client) about new proposal
   try {
     const clientId = job.client;
@@ -103,7 +237,13 @@ export const getProposalById = async (proposalId, userId) => {
     throw createAppError("This proposal is no longer available", 404);
   }
 
-  return proposal;
+  // Add canEdit flag to response
+  const { canEdit, reason } = checkCanEditProposal(proposal);
+  const proposalObj = proposal.toObject();
+  proposalObj.canEdit = canEdit;
+  proposalObj.canEditReason = reason;
+
+  return proposalObj;
 };
 
 export const getFreelancerProposals = async (userId, filters = {}) => {
@@ -147,8 +287,10 @@ export const updateProposal = async (proposalId, userId, updateData) => {
     throw createAppError("You don't have permission to update this proposal", 403);
   }
 
-  if (proposal.status !== "pending") {
-    throw createAppError("You can only edit proposals that are pending", 400);
+  // Check if proposal can be edited
+  const { canEdit, reason } = checkCanEditProposal(proposal);
+  if (!canEdit) {
+    throw createAppError(reason, 403);
   }
 
   const allowedUpdates = ["coverLetter", "bidAmount", "deliveryTime", "attachments"];
@@ -186,6 +328,11 @@ export const withdrawProposal = async (proposalId, userId) => {
   // Decrement job's proposalsCount
   await Job.findByIdAndUpdate(proposal.jobId, {
     $inc: { proposalsCount: -1 }
+  });
+
+  // Decrement freelancer's activeProposalsCount
+  await User.findByIdAndUpdate(userId, {
+    $inc: { activeProposalsCount: -1 }
   });
 
   return { message: "Proposal withdrawn successfully" };
@@ -284,7 +431,7 @@ export const getJobProposals = async (jobId, clientId, filters = {}) => {
 
 export const getClientProposalById = async (proposalId, clientId) => {
   const proposal = await Proposal.findById(proposalId)
-    .populate("freelancerId", "name email avatar skills hourlyRate experience bio location")
+    .populate("freelancerId") // Populate all fields for profileCompleteness calculation
     .populate("jobId", "title description budget budgetMin budgetMax client");
 
   if (!proposal) {
@@ -294,6 +441,26 @@ export const getClientProposalById = async (proposalId, clientId) => {
   // Verify the job belongs to this client
   if (proposal.jobId.client.toString() !== clientId.toString()) {
     throw createAppError("You don't have permission to view this proposal", 403);
+  }
+
+  // Mark proposal as viewed by client (first time only)
+  if (!proposal.clientViewed) {
+    proposal.clientViewed = true;
+    proposal.clientViewedAt = new Date();
+    await proposal.save();
+
+    // Notify freelancer that client viewed their proposal
+    try {
+      await notifyUser(proposal.freelancerId._id, {
+        type: 'proposal_viewed',
+        title: 'Proposal Viewed',
+        message: `Your proposal for "${proposal.jobId.title}" has been viewed by the client`,
+        link: `/freelancer/proposals/${proposalId}`,
+        data: { proposalId, jobId: proposal.jobId._id }
+      });
+    } catch (err) {
+      console.error('[Notification] Failed to notify freelancer about proposal view', err.message);
+    }
   }
 
   return proposal;
@@ -376,6 +543,14 @@ export const acceptProposal = async (proposalId, clientId) => {
   await proposal.save();
 
   // Reject all other pending proposals for this job
+  const rejectedProposals = await Proposal.find(
+    { 
+      jobId: proposal.jobId._id, 
+      _id: { $ne: proposalId },
+      status: "pending" 
+    }
+  );
+
   await Proposal.updateMany(
     { 
       jobId: proposal.jobId._id, 
@@ -383,6 +558,15 @@ export const acceptProposal = async (proposalId, clientId) => {
       status: "pending" 
     },
     { status: "rejected" }
+  );
+
+  // Decrement activeProposalsCount for all rejected freelancers and the accepted one
+  const freelancerIds = rejectedProposals.map(p => p.freelancerId);
+  freelancerIds.push(proposal.freelancerId); // Add the accepted freelancer
+  
+  await User.updateMany(
+    { _id: { $in: freelancerIds } },
+    { $inc: { activeProposalsCount: -1 } }
   );
 
   const updatedProposal = await Proposal.findById(proposalId)
@@ -433,6 +617,11 @@ export const rejectProposal = async (proposalId, clientId, reason = null) => {
     proposal.rejectionReason = reason;
   }
   await proposal.save();
+
+  // Decrement freelancer's activeProposalsCount
+  await User.findByIdAndUpdate(proposal.freelancerId, {
+    $inc: { activeProposalsCount: -1 }
+  });
 
   // Notify freelancer about rejection
   try {

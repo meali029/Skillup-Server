@@ -12,9 +12,42 @@ router.use(authenticate);
 router.use(authorize('admin'));
 
 /**
- * @route   GET /api/admin/jobs
- * @desc    Get all jobs with filters (for admin review)
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/jobs:
+ *   get:
+ *     summary: Get all jobs with filters (for admin review)
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, approved, rejected, flagged]
+ *       - in: query
+ *         name: featured
+ *         schema:
+ *           type: boolean
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of jobs
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get(
   '/',
@@ -24,9 +57,38 @@ router.get(
 );
 
 /**
- * @route   GET /api/admin/jobs/stats/overview
- * @desc    Get job statistics overview
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/jobs/stats/overview:
+ *   get:
+ *     summary: Get job statistics overview
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Job statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 stats:
+ *                   type: object
+ *                   properties:
+ *                     total:
+ *                       type: integer
+ *                     pending:
+ *                       type: integer
+ *                     approved:
+ *                       type: integer
+ *                     flagged:
+ *                       type: integer
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
  */
 router.get(
   '/stats/overview',
@@ -35,9 +97,28 @@ router.get(
 );
 
 /**
- * @route   GET /api/admin/jobs/:id
- * @desc    Get job details
- * @access  Admin (Moderator can view)
+ * @swagger
+ * /api/admin/jobs/{id}:
+ *   get:
+ *     summary: Get job details
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Job details
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Job not found
  */
 router.get(
   '/:id',
@@ -47,9 +128,28 @@ router.get(
 );
 
 /**
- * @route   PUT /api/admin/jobs/:id/approve
- * @desc    Approve a job
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/jobs/{id}/approve:
+ *   put:
+ *     summary: Approve a job
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Job approved
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Job not found
  */
 router.put(
   '/:id/approve',
@@ -59,9 +159,39 @@ router.put(
 );
 
 /**
- * @route   PUT /api/admin/jobs/:id/reject
- * @desc    Reject a job
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/jobs/{id}/reject:
+ *   put:
+ *     summary: Reject a job
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reason
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Job rejected
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Job not found
  */
 router.put(
   '/:id/reject',
@@ -71,9 +201,39 @@ router.put(
 );
 
 /**
- * @route   PUT /api/admin/jobs/:id/flag
- * @desc    Flag a job for review
- * @access  Admin (Moderator can flag)
+ * @swagger
+ * /api/admin/jobs/{id}/flag:
+ *   put:
+ *     summary: Flag a job for review
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reason
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Job flagged
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Job not found
  */
 router.put(
   '/:id/flag',
@@ -83,9 +243,28 @@ router.put(
 );
 
 /**
- * @route   PUT /api/admin/jobs/:id/feature
- * @desc    Toggle featured status
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/jobs/{id}/feature:
+ *   put:
+ *     summary: Toggle job featured status
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Featured status toggled
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Job not found
  */
 router.put(
   '/:id/feature',
@@ -95,9 +274,28 @@ router.put(
 );
 
 /**
- * @route   DELETE /api/admin/jobs/:id
- * @desc    Delete a job
- * @access  Admin (Admin and above)
+ * @swagger
+ * /api/admin/jobs/{id}:
+ *   delete:
+ *     summary: Delete a job
+ *     tags: [Admin - Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Job deleted
+ *       401:
+ *         description: Not authenticated
+ *       403:
+ *         description: Not authorized (admin only)
+ *       404:
+ *         description: Job not found
  */
 router.delete(
   '/:id',

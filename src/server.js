@@ -43,6 +43,4 @@ const httpServer = createServer(app);
 initializeSocketServer(httpServer);
 
 httpServer.listen(PORT, ()=> {
-  console.log(`Server listening on ${PORT}`);
-  console.log(`Socket.io server ready`);
 });

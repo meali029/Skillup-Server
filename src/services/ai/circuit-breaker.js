@@ -61,7 +61,6 @@ class CircuitBreaker {
   isOpen() {
     // Check if we should attempt recovery
     if (this.shouldAttemptRecovery()) {
-      console.log('[Circuit Breaker] Attempting recovery - switching to HALF_OPEN');
       this.state = 'HALF_OPEN';
       this.stats.lastStateChange = Date.now();
       return false;
@@ -86,7 +85,6 @@ class CircuitBreaker {
 
     // Check if circuit is open
     if (this.isOpen()) {
-      console.log('[Circuit Breaker] Circuit is OPEN - using fallback');
       if (fallback) {
         return fallback();
       }
@@ -104,7 +102,6 @@ class CircuitBreaker {
       
       // If fallback exists, use it
       if (fallback) {
-        console.log('[Circuit Breaker] Error occurred, using fallback:', error.message);
         return fallback();
       }
       
@@ -121,7 +118,6 @@ class CircuitBreaker {
 
     // If in HALF_OPEN state and success, close the circuit
     if (this.state === 'HALF_OPEN') {
-      console.log('[Circuit Breaker] Success in HALF_OPEN state - closing circuit');
       this.state = 'CLOSED';
       this.failureCount = 0;
       this.stats.lastStateChange = Date.now();
@@ -140,7 +136,6 @@ class CircuitBreaker {
 
     // If in HALF_OPEN and failure, reopen circuit
     if (this.state === 'HALF_OPEN') {
-      console.log('[Circuit Breaker] Failure in HALF_OPEN state - reopening circuit');
       this.state = 'OPEN';
       this.stats.circuitOpenCount++;
       this.stats.lastStateChange = Date.now();
@@ -149,7 +144,6 @@ class CircuitBreaker {
 
     // Check if error threshold exceeded
     if (this.state === 'CLOSED' && errorRate >= this.errorThreshold) {
-      console.log(`[Circuit Breaker] Error threshold exceeded (${(errorRate * 100).toFixed(1)}%) - opening circuit`);
       this.state = 'OPEN';
       this.stats.circuitOpenCount++;
       this.stats.lastStateChange = Date.now();
@@ -180,7 +174,6 @@ class CircuitBreaker {
     this.totalRequests = 0;
     this.lastFailureTime = null;
     this.lastCheckTime = Date.now();
-    console.log('[Circuit Breaker] Circuit breaker reset');
   }
 }
 

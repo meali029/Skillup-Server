@@ -1,6 +1,6 @@
 import asyncHandler from '../../core/utils/asyncHandler.js';
 import { successResponse } from '../../core/utils/responseFormatter.js';
-import * as cnicService from './cnic.service.js';
+import * as cnicService from './cnic.service.cloudinary.js';
 import { createAuditLog } from '../../core/utils/auditLogger.js';
 
 /**
@@ -137,4 +137,14 @@ export const requestReupload = asyncHandler(async (req, res) => {
 export const getCNICStats = asyncHandler(async (req, res) => {
   const stats = await cnicService.getCNICStats();
   successResponse(res, stats, 'CNIC statistics retrieved successfully', 200);
+});
+
+/**
+ * @desc    Run OCR extraction on CNIC images (Admin only)
+ * @route   POST /api/cnic/admin/:userId/run-ocr
+ * @access  Admin
+ */
+export const runOCR = asyncHandler(async (req, res) => {
+  const result = await cnicService.runOCRExtraction(req.params.userId, req.user.id);
+  successResponse(res, result, result.message, 200);
 });

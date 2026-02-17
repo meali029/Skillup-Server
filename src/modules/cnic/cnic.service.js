@@ -61,13 +61,7 @@ export const submitCNIC = async (userId, files) => {
         rawText: extractedData.rawText,
         extractedAt: extractedData.extractedAt
       };
-      console.log('✅ OCR suggestion available for admin:', {
-        cnicNumber: ocrData.extractedCnicNumber,
-        confidence: ocrData.confidence.toFixed(1) + '%',
-        method: ocrData.extractionMethod
-      });
     } else {
-      console.log('ℹ️ OCR could not extract CNIC - Admin will enter manually from images');
       // Store attempt info for debugging
       if (extractedData) {
         ocrData = {
@@ -80,7 +74,6 @@ export const submitCNIC = async (userId, files) => {
     }
   } catch (error) {
     console.error('OCR processing error (non-blocking):', error.message);
-    console.log('✓ Submission successful - Admin will enter details manually');
   }
 
   // Update user CNIC data

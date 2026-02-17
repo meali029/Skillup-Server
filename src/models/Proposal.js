@@ -69,6 +69,10 @@ const proposalSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Timestamp when client first viewed this proposal
+    clientViewedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

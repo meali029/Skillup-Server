@@ -46,8 +46,22 @@ export const getMyJobs = asyncHandler(async (req, res) => {
 });
 
 export const closeJob = asyncHandler(async (req, res) => {
-  const job = await jobService.closeJob(req.params.id, req.user.id);
-  successResponse(res, { job: formatJob(job) }, 'Job closed successfully');
+  const { closeReason, closeNote } = req.body;
+  const result = await jobService.closeJob(req.params.id, req.user.id, closeReason, closeNote);
+  successResponse(
+    res, 
+    { 
+      job: formatJob(result.job),
+      rejectedProposalsCount: result.rejectedProposalsCount
+    }, 
+    `Job closed successfully. ${result.rejectedProposalsCount} proposal(s) were automatically rejected.`
+  );
+});
+
+export const updateJobStatus = asyncHandler(async (req, res) => {
+  const { status } = req.body;
+  const job = await jobService.updateJobStatus(req.params.id, req.user.id, status);
+  successResponse(res, { job: formatJob(job) }, `Job status updated to "${status}"`);
 });
 
 export const getJobStats = asyncHandler(async (req, res) => {

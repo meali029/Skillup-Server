@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { AppError, createAppError } from "../../core/errors/index.js";
 import { TokenService } from "../shared/services/index.js";
 import { generateOTPData, verifyOTP as verifyOTPUtil, isOTPExpired } from "../../core/utils/otpService.js";
-import { sendOTPEmail, sendPasswordResetConfirmation } from "../../core/utils/emailService.js";
+import { sendOTPEmail, sendPasswordResetConfirmation, sendEmailVerification, generateEmailVerificationToken, resendEmailVerification } from "../../core/utils/emailService.js";
 
 export const registerLocal = async (registrationData) => {
   const { 
@@ -14,8 +14,13 @@ export const registerLocal = async (registrationData) => {
 
   const exists = await User.findOne({ email });
   if (exists) {
+    // Security: Use same error for existing email to prevent enumeration
     throw createAppError("Email already registered", 400);
   }
+
+  // Generate email verification token
+  const emailVerificationToken = generateEmailVerificationToken();
+  const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
   // Build user data object
   const userData = {
@@ -27,6 +32,10 @@ export const registerLocal = async (registrationData) => {
     bio: bio || '',
     location: location || '',
     phone: phone || '',
+    // Email verification - false for manual signup until verified
+    isEmailVerified: false,
+    emailVerificationToken,
+    emailVerificationExpires,
   };
 
   // Add freelancer-specific fields
@@ -54,12 +63,20 @@ export const registerLocal = async (registrationData) => {
     await user.save();
   }
   
-  // Reload user to get the saved state
+  // Send email verification
+  try {
+    await sendEmailVerification(email, name, emailVerificationToken);
+  } catch (emailError) {
+    console.error('[Auth Service] Failed to send verification email:', emailError);
+    // Don't fail registration if email fails, but log it
+  }
+  
+  // Reload user to get the saved state (without sensitive fields)
   const savedUser = await User.findById(user._id).select('-password');
   
   const token = TokenService.generateToken(savedUser);
   
-  return { user: savedUser, token };
+  return { user: savedUser, token, requiresEmailVerification: true };
 };
 
 export const completeProfile = async (userId, profileData) => {
@@ -145,8 +162,26 @@ export const completeProfile = async (userId, profileData) => {
 export const loginLocal = async ({ email, password }) => {
   const user = await User.findOne({ email }).select('+password');
   
-  if (!user || user.provider !== "local") {
+  // Security: Same error for non-existent user to prevent email enumeration
+  if (!user) {
     throw createAppError("Invalid credentials", 401);
+  }
+  
+  // Allow login if provider is 'local' OR 'both' (linked account)
+  // Deny only if provider is purely 'google' (no password ever set)
+  if (user.provider === 'google') {
+    throw createAppError(
+      "This account uses Google sign-in. Please login with Google instead.",
+      401
+    );
+  }
+  
+  // Check if user has a password (for safety)
+  if (!user.password) {
+    throw createAppError(
+      "This account doesn't have a password. Please login with Google or reset your password.",
+      401
+    );
   }
   
   const isPasswordValid = await user.comparePassword(password);
@@ -170,6 +205,16 @@ export const loginLocal = async ({ email, password }) => {
       403
     );
   }
+
+  // CRITICAL: Check email verification for manual (local) users
+  // Google users are verified by default, so this only affects local users
+  if (!user.isEmailVerified) {
+    throw createAppError(
+      "Please verify your email before logging in. Check your inbox for the verification link.",
+      403,
+      'EMAIL_NOT_VERIFIED'
+    );
+  }
   
   // Remove password from user object
   const userWithoutPassword = user.toObject();
@@ -191,10 +236,11 @@ export const requestPasswordReset = async (email) => {
     return { message: "If this email exists, an OTP has been sent" };
   }
   
-  // Check if user signed up with OAuth (Google, etc.)
-  if (user.provider !== "local") {
+  // Check if user signed up with OAuth only (no password ever set)
+  // Allow password reset for 'local' and 'both' providers
+  if (user.provider === "google") {
     throw createAppError(
-      `This account is linked with ${user.provider === 'google' ? 'Google' : user.provider}. Please sign in using ${user.provider === 'google' ? 'Google' : user.provider}.`,
+      "This account uses Google sign-in. Password reset is not available. Please sign in using Google.",
       400
     );
   }
@@ -234,9 +280,9 @@ export const verifyOTPService = async (email, otp) => {
     throw createAppError("Invalid credentials", 400);
   }
   
-  // Check if user is local provider
-  if (user.provider !== "local") {
-    throw createAppError(`This account uses ${user.provider === 'google' ? 'Google' : user.provider} sign-in. Password reset is not available for OAuth accounts.`, 400);
+  // Check if user can reset password (local or both providers)
+  if (user.provider === "google") {
+    throw createAppError("This account uses Google sign-in. Password reset is not available for OAuth-only accounts.", 400);
   }
   
   // Check if OTP exists
@@ -262,8 +308,6 @@ export const verifyOTPService = async (email, otp) => {
   // Mark OTP as verified so resetPassword can be called without re-supplying the OTP
   user.resetPasswordOTPVerified = true;
   await user.save();
-  console.log('[auth.service] OTP verified and flag set for', user.email);
-  
   return { message: "OTP verified successfully", verified: true };
 };
 
@@ -289,7 +333,6 @@ export const resetPassword = async (email, otp, newPassword) => {
 
   // If OTP was not supplied, require that it's been verified earlier
   if (!otp) {
-    console.log('[auth.service] resetPassword called without otp. user.resetPasswordOTPVerified=', user.resetPasswordOTPVerified);
     if (!user.resetPasswordOTPVerified) {
       throw createAppError("No OTP request found. Please request a new OTP", 400);
     }
@@ -336,3 +379,78 @@ export const resetPassword = async (email, otp, newPassword) => {
   return { message: "Password reset successfully" };
 };
 
+// Verify email with token
+export const verifyEmailToken = async (token) => {
+  if (!token) {
+    throw createAppError("Verification token is required", 400);
+  }
+
+  // Find user with this verification token
+  const user = await User.findOne({ 
+    emailVerificationToken: token,
+  }).select('+emailVerificationToken +emailVerificationExpires');
+
+  if (!user) {
+    throw createAppError("Invalid or expired verification link. Please request a new one.", 400);
+  }
+
+  // Check if token has expired
+  if (user.emailVerificationExpires && user.emailVerificationExpires < new Date()) {
+    throw createAppError("Verification link has expired. Please request a new one.", 400);
+  }
+
+  // Mark email as verified and clear verification fields
+  user.isEmailVerified = true;
+  user.emailVerificationToken = undefined;
+  user.emailVerificationExpires = undefined;
+  await user.save();
+  // Return the full user object for auto-login after verification
+  const verifiedUser = await User.findById(user._id).select('-password');
+
+  return { 
+    message: "Email verified successfully", 
+    user: verifiedUser
+  };
+};
+
+// Resend verification email
+export const resendVerificationEmail = async (email) => {
+  if (!email) {
+    throw createAppError("Email is required", 400);
+  }
+
+  const user = await User.findOne({ email });
+
+  // Security: Same response whether email exists or not
+  if (!user) {
+    return { message: "If this email is registered, a verification link has been sent." };
+  }
+
+  // Check if already verified
+  if (user.isEmailVerified) {
+    throw createAppError("This email is already verified. Please log in.", 400);
+  }
+
+  // Check if user is pure Google provider (should not need verification)
+  if (user.provider === 'google') {
+    throw createAppError("Google accounts do not require email verification.", 400);
+  }
+
+  // Generate new verification token
+  const emailVerificationToken = generateEmailVerificationToken();
+  const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+  user.emailVerificationToken = emailVerificationToken;
+  user.emailVerificationExpires = emailVerificationExpires;
+  await user.save();
+
+  // Send verification email
+  try {
+    await resendEmailVerification(email, user.name, emailVerificationToken);
+  } catch (emailError) {
+    console.error('[Auth Service] Failed to resend verification email:', emailError);
+    throw createAppError("Failed to send verification email. Please try again later.", 500);
+  }
+
+  return { message: "Verification email has been sent. Please check your inbox." };
+};

@@ -16,7 +16,6 @@ const KEY_LENGTH = 32;
 const getEncryptionKey = () => {
   const key = process.env.PAYMENT_ENCRYPTION_KEY;
   if (!key) {
-    console.warn('PAYMENT_ENCRYPTION_KEY not set. Using default key (NOT SECURE FOR PRODUCTION)');
     // In production, this should throw an error
     return crypto.scryptSync('default-key-change-in-production', 'salt', KEY_LENGTH);
   }

@@ -47,7 +47,6 @@ class AdminSettingsService {
       const settings = await AdminSettings.updateSettings(validatedUpdates);
       
       // Log the change (could add audit log here)
-      console.log(`[Admin Settings] Updated by admin ${adminId}:`, validatedUpdates);
 
       return settings;
     } catch (error) {

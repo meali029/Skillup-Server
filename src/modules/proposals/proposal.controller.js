@@ -1,5 +1,6 @@
 import * as proposalService from "./proposal.service.js";
 import { asyncHandler, successResponse, paginatedResponse } from "../../core/utils/index.js";
+import { formatUser } from "../shared/dtos/index.js";
 
 export const submitProposal = asyncHandler(async (req, res) => {
   const proposal = await proposalService.createProposal(req.user.id, req.validatedData || req.body);
@@ -83,10 +84,24 @@ export const getClientProposalDetails = asyncHandler(async (req, res) => {
     proposal = await proposalService.clientViewedProposalAndNotify(req.params.id, req.user.id);
   } catch (err) {
     // Non-fatal: continue to return the proposal
-    console.debug('[Notification] client viewed flow error', err.message);
+
   }
 
-  successResponse(res, { proposal }, "Proposal fetched successfully");
+  // Format the proposal to include profileCompleteness for freelancer
+  const formattedProposal = proposal.toObject();
+  if (formattedProposal.freelancerId) {
+    formattedProposal.freelancerId = formatUser(proposal.freelancerId);
+  }
+  
+  // Ensure job has proper id field for frontend
+  if (formattedProposal.jobId && formattedProposal.jobId._id) {
+    formattedProposal.jobId = {
+      ...formattedProposal.jobId,
+      id: formattedProposal.jobId._id.toString(),
+    };
+  }
+
+  successResponse(res, { proposal: formattedProposal }, "Proposal fetched successfully");
 });
 
 export const acceptProposal = asyncHandler(async (req, res) => {
@@ -137,4 +152,13 @@ export const regenerateProposalDraft = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   const draft = await proposalService.regenerateProposalDraft(jobId, req.user.id);
   successResponse(res, draft, 'Proposal draft regenerated successfully');
+});
+
+/**
+ * Get weekly proposal limit status
+ * Returns how many proposals the freelancer has used and how many remain
+ */
+export const getProposalLimitStatus = asyncHandler(async (req, res) => {
+  const limitStatus = await proposalService.getProposalLimitStatus(req.user.id);
+  successResponse(res, { limitStatus }, "Proposal limit status retrieved successfully");
 });

@@ -4,7 +4,9 @@ import {
   completeProfile as completeProfileService, 
   requestPasswordReset, 
   verifyOTPService, 
-  resetPassword
+  resetPassword,
+  verifyEmailToken,
+  resendVerificationEmail
 } from "./auth.service.js";
 import { asyncHandler, successResponse } from "../../core/utils/index.js";
 import { AppError, createAppError } from "../../core/errors/index.js";
@@ -18,7 +20,7 @@ export const register = asyncHandler(async (req, res) => {
   // Extract all possible registration fields from validatedData or body
   const registrationData = req.validatedData || req.body;
 
-  const { user, token } = await registerLocal(registrationData);
+  const { user, token, requiresEmailVerification } = await registerLocal(registrationData);
   
   res.cookie("token", token, TokenService.getCookieOptions());
   
@@ -27,9 +29,11 @@ export const register = asyncHandler(async (req, res) => {
     {
       user: formatUser(user),
       token,
-      isProfileComplete: user.isProfileComplete
+      isProfileComplete: user.isProfileComplete,
+      requiresEmailVerification: requiresEmailVerification || false,
+      isEmailVerified: user.isEmailVerified
     },
-    "Registration successful",
+    "Registration successful. Please check your email to verify your account.",
     201
   );
 });
@@ -78,8 +82,8 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const googleCallback = asyncHandler(async (req, res) => {
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5174';
-  
+  // CRITICAL: Use FRONTEND_URL first, then CLIENT_URL for backward compatibility
+  const clientUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
   if (!req.user) {
     // Check if there's an error message from passport (e.g., ban/suspension)
     const errorMessage = req.session?.messages?.[0] || 'authentication_failed';
@@ -90,7 +94,6 @@ export const googleCallback = asyncHandler(async (req, res) => {
   res.cookie("token", token, TokenService.getCookieOptions());
   
   const isProfileComplete = req.user.isProfileComplete && req.user.role;
-  
   if (!isProfileComplete) {
     res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
   } else {
@@ -233,7 +236,46 @@ export const resetPasswordController = asyncHandler(async (req, res) => {
     200
   );
 });
+// Email verification controller
+export const verifyEmailController = asyncHandler(async (req, res) => {
+  const { token } = req.query;
+  
+  if (!token) {
+    throw createAppError("Verification token is required", 400);
+  }
 
+  const result = await verifyEmailToken(token);
+  
+  // Generate JWT token for auto-login
+  const jwtToken = TokenService.generateToken(result.user);
+  
+  // Set cookie for auto-login
+  res.cookie("token", jwtToken, TokenService.getCookieOptions());
+  
+  // Get frontend URL for redirect
+  const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
+  
+  // Redirect to frontend callback that will handle auto-login and redirect to dashboard
+  res.redirect(`${frontendUrl}/auth/email-verified?token=${encodeURIComponent(jwtToken)}&success=true`);
+});
+
+// Resend verification email controller
+export const resendVerificationController = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    throw createAppError("Email is required", 400);
+  }
+
+  const result = await resendVerificationEmail(email);
+  
+  successResponse(
+    res,
+    null,
+    result.message,
+    200
+  );
+});
 // CNIC Verification Controllers - Placeholder exports for backward compatibility
 // The actual CNIC functionality should use the CNIC module routes at /api/cnic/*
 export const uploadCNICFrontController = asyncHandler(async (req, res) => {

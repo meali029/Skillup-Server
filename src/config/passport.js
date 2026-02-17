@@ -6,10 +6,16 @@ import User from '../models/User.js';
 export function initializePassport() {
   // Only configure Google strategy if environment variables are available
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    
+    // CRITICAL: Use environment-based callback URL - NO hardcoded localhost
+    const callbackURL = process.env.GOOGLE_CALLBACK_URL;
+    if (!callbackURL) {
+    }
+    
     passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:5000/api/auth/google/callback"
+      callbackURL: callbackURL || "http://localhost:5000/api/auth/google/callback"
     }, async (accessToken, refreshToken, profile, done) => {
       try {
         if (!profile.emails || !profile.emails[0] || !profile.emails[0].value) {
@@ -43,27 +49,48 @@ export function initializePassport() {
           }
           
           // Link Google account to existing user
-          user.googleId = profile.id;
-          user.provider = 'google';
-          user.avatar = profile.photos[0]?.value || '';
+          // IMPORTANT: Don't overwrite provider if user registered locally
+          // This allows users to login with BOTH password AND Google
+          if (!user.googleId) {
+            user.googleId = profile.id;
+          }
+          
+          // Only set provider to 'google' if user doesn't have a password (pure OAuth user)
+          // If user has password, keep provider as 'local' or set to 'both' to indicate linked account
+          if (user.provider === 'local') {
+            user.provider = 'both'; // User can login with both password and Google
+          }
+          
+          // Update avatar only if user doesn't have one
+          if (!user.avatar && profile.photos[0]?.value) {
+            user.avatar = profile.photos[0].value;
+          }
+          
+          // CRITICAL: Google users are auto-verified
+          user.isEmailVerified = true;
           await user.save();
           
           return done(null, user);
-        }        
+        }
+        
+        // Create new user - Google users are email-verified by default
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
           email: profile.emails[0].value,
           avatar: profile.photos[0]?.value || '',
           provider: 'google',
+          // CRITICAL: Google users are auto-verified and need to complete profile
           isEmailVerified: true,
           isProfileComplete: false
-        });     
+        });
         return done(null, user);
       } catch (error) {
+        console.error('[Passport] Google OAuth error:', error);
         return done(error, null);
       }
     }));
+  } else {
   }
 
   // Serialize user for session

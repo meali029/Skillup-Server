@@ -13,11 +13,19 @@ export const createFromProposal = {
         'string.length': 'Invalid proposal ID length',
         'any.required': 'Proposal ID is required',
       }),
-    terms: Joi.string().optional().trim().min(10)
+    terms: Joi.string().optional().trim().min(10).allow('', null)
       .messages({
         'string.min': 'Terms must be at least 10 characters',
       }),
-    deadline: Joi.date().optional().iso().min('now')
+    totalAmount: Joi.number().optional().min(0.01)
+      .messages({
+        'number.min': 'Total amount must be greater than 0',
+      }),
+    deadline: Joi.alternatives().try(
+      Joi.date().iso().min('now'),
+      Joi.string().allow('', null),
+      Joi.allow(null)
+    ).optional()
       .messages({
         'date.min': 'Deadline must be in the future',
       }),
@@ -30,7 +38,7 @@ export const createFromProposal = {
               'string.max': 'Milestone title cannot exceed 200 characters',
               'any.required': 'Milestone title is required',
             }),
-          description: Joi.string().optional().trim().max(1000)
+          description: Joi.string().optional().trim().max(1000).allow('', null)
             .messages({
               'string.max': 'Milestone description cannot exceed 1000 characters',
             }),
@@ -39,7 +47,11 @@ export const createFromProposal = {
               'number.min': 'Milestone amount must be greater than 0',
               'any.required': 'Milestone amount is required',
             }),
-          dueDate: Joi.date().optional().iso().min('now')
+          dueDate: Joi.alternatives().try(
+            Joi.date().iso().min('now'),
+            Joi.string().allow('', null),
+            Joi.allow(null)
+          ).optional()
             .messages({
               'date.min': 'Milestone due date must be in the future',
             }),
@@ -47,15 +59,15 @@ export const createFromProposal = {
       )
       .optional(),
     paymentData: Joi.object({
-      paymentMethod: Joi.string().required().valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+      paymentMethod: Joi.string().required().valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET')
         .messages({
           'any.required': 'Payment method is required',
-          'any.only': 'Payment method must be JAZZCASH, EASYPAISA, or BANK_TRANSFER',
+          'any.only': 'Payment method must be JAZZCASH, EASYPAISA, BANK_TRANSFER, or WALLET',
         }),
       customerData: Joi.object({
-        email: Joi.string().optional().email(),
-        name: Joi.string().optional().trim(),
-        phone: Joi.string().optional().trim(),
+        email: Joi.string().optional().email().allow('', null),
+        name: Joi.string().optional().trim().allow('', null),
+        phone: Joi.string().optional().trim().allow('', null),
       }).optional(),
     }).required()
       .messages({
@@ -154,12 +166,6 @@ export const updateMilestone = {
     dueDate: Joi.date().optional().iso().min('now')
       .messages({
         'date.min': 'Milestone due date must be in the future',
-      }),
-    status: Joi.string()
-      .valid(...Object.values(MILESTONE_STATUS))
-      .optional()
-      .messages({
-        'any.only': `Milestone status must be one of: ${Object.values(MILESTONE_STATUS).join(', ')}`,
       }),
     notes: Joi.string().optional().trim().max(500)
       .messages({
@@ -275,7 +281,7 @@ export const fundMilestoneEscrow = {
   }),
   body: Joi.object({
     paymentMethod: Joi.string()
-      .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+      .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET')
       .required()
       .messages({
         'any.only': 'Invalid payment method',

@@ -256,6 +256,30 @@ const jobSchema = new mongoose.Schema(
       default: null,
     },
     
+    // Close information
+    closedAt: {
+      type: Date,
+    },
+    
+    closeReason: {
+      type: String,
+      enum: ['hired-on-platform', 'hired-elsewhere', 'no-longer-needed', 'budget-issues', 'other'],
+    },
+    
+    closeNote: {
+      type: String,
+      maxlength: 500,
+    },
+    
+    // Lifecycle timestamps
+    startedAt: {
+      type: Date,
+    },
+    
+    completedAt: {
+      type: Date,
+    },
+    
     // Admin Moderation
     isFlagged: {
       type: Boolean,
@@ -357,7 +381,7 @@ jobSchema.virtual('daysRemaining').get(function() {
 });
 
 // Pre-save middleware
-jobSchema.pre('save', function(next) {
+jobSchema.pre('save', async function(next) {
   // Validate hourly rate if budget type is hourly
   if (this.budgetType === 'hourly') {
     if (!this.hourlyRate || !this.hourlyRate.min || !this.hourlyRate.max) {
@@ -383,6 +407,32 @@ jobSchema.pre('save', function(next) {
     const titleWords = this.title.toLowerCase().split(' ');
     const descWords = this.description.toLowerCase().split(' ').slice(0, 20);
     this.searchKeywords = [...new Set([...titleWords, ...descWords, ...this.skills])];
+  }
+  
+  // Auto-reject PENDING proposals when job status changes to 'closed'
+  // NOTE: Accepted proposals remain accepted (industry standard - work may be in progress)
+  if (this.isModified('status') && this.status === 'closed') {
+    try {
+      const Proposal = mongoose.model('Proposal');
+      
+      // Only reject PENDING proposals (not accepted ones)
+      await Proposal.updateMany(
+        { 
+          job: this._id,
+          status: 'pending'
+        },
+        { 
+          $set: { 
+            status: 'rejected',
+            rejectedAt: new Date(),
+            rejectionReason: this.closeReason || 'Job closed by client'
+          }
+        }
+      );
+    } catch (error) {
+      console.error('[Job Closed] Error rejecting proposals:', error);
+      // Don't block job closure if proposal update fails
+    }
   }
   
   next();

@@ -39,7 +39,6 @@ class GeminiProvider extends AIProviderInterface {
   initialize() {
     try {
       if (!aiConfig.gemini.apiKey) {
-        console.warn('⚠️  GEMINI_API_KEY not configured. Gemini provider will be unavailable.');
         this.initialized = false;
         return;
       }
@@ -49,7 +48,6 @@ class GeminiProvider extends AIProviderInterface {
         model: aiConfig.gemini.model 
       });
       this.initialized = true;
-      console.log(`✅ Gemini provider initialized with model: ${aiConfig.gemini.model}`);
     } catch (error) {
       console.error('❌ Failed to initialize Gemini provider:', error.message);
       this.initialized = false;
@@ -104,7 +102,6 @@ class GeminiProvider extends AIProviderInterface {
     if (process.env.NODE_ENV === 'test') {
       try {
         // eslint-disable-next-line no-console
-        console.debug('[Gemini] createTimeoutPromise called with timeout', timeout, new Error().stack.split('\n').slice(2,6).join('\n'));
       } catch (e) {}
     }
 
@@ -213,7 +210,6 @@ class GeminiProvider extends AIProviderInterface {
   async generateEmbeddings(text) {
     // Gemini free tier doesn't support embeddings
     // Return mock embedding for compatibility
-    console.warn('⚠️  Embeddings not supported by Gemini free tier');
     return new Array(768).fill(0).map(() => Math.random());
   }
 
@@ -237,7 +233,6 @@ class GeminiProvider extends AIProviderInterface {
       return analysis;
     } catch (error) {
       // If parsing fails, return basic analysis
-      console.warn('⚠️  Failed to parse match analysis, using fallback');
       return {
         score: 70,
         strengths: ['Skills match', 'Experience aligned'],
@@ -300,7 +295,5 @@ Provide a JSON response with this structure:
 
 // Export singleton instance
 export default new GeminiProvider();
-
-
 
 

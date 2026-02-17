@@ -101,6 +101,11 @@ const authorizeAdmin = (req, res, next) => {
     return next(createAppError("Authentication required", 401));
   }
 
+  // super_admin role has all permissions automatically
+  if (req.user.role === 'super_admin') {
+    return next();
+  }
+
   // Must have role === 'admin' AND have an adminRole set
   if (req.user.role !== 'admin' || !req.user.adminRole) {
     return next(createAppError(

@@ -14,12 +14,18 @@ export const requirePermission = (permission) => {
       });
     }
 
-    // Check if user is an admin
-    if (req.user.role !== 'admin') {
+    // Check if user is an admin (role can be 'admin' or 'super_admin')
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+    if (!isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
       });
+    }
+
+    // For super_admin role, grant all permissions automatically
+    if (req.user.role === 'super_admin') {
+      return next();
     }
 
     // Check if user has the required permission
@@ -49,11 +55,18 @@ export const requireAnyPermission = (permissions) => {
       });
     }
 
-    if (req.user.role !== 'admin') {
+    // Check if user is an admin (role can be 'admin' or 'super_admin')
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+    if (!isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
       });
+    }
+
+    // For super_admin role, grant all permissions automatically
+    if (req.user.role === 'super_admin') {
+      return next();
     }
 
     if (!hasAnyPermission(req.user.adminRole, permissions)) {
@@ -82,11 +95,18 @@ export const requireAllPermissions = (permissions) => {
       });
     }
 
-    if (req.user.role !== 'admin') {
+    // Check if user is an admin (role can be 'admin' or 'super_admin')
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+    if (!isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Admin access required'
       });
+    }
+
+    // For super_admin role, grant all permissions automatically
+    if (req.user.role === 'super_admin') {
+      return next();
     }
 
     if (!hasAllPermissions(req.user.adminRole, permissions)) {
@@ -121,6 +141,12 @@ export const requireAdminRole = (minRole) => {
       });
     }
 
+    // super_admin role (as direct role) has all permissions automatically
+    if (req.user.role === 'super_admin') {
+      return next();
+    }
+
+    // Check if user is admin with adminRole
     if (req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -156,7 +182,15 @@ export const requireSuperAdmin = () => requireAdminRole('super_admin');
  * @returns {boolean}
  */
 export const checkPermission = (user, permission) => {
-  if (!user || user.role !== 'admin') {
+  if (!user) {
+    return false;
+  }
+  // super_admin role (as direct role) has all permissions
+  if (user.role === 'super_admin') {
+    return true;
+  }
+  // admin with adminRole
+  if (user.role !== 'admin') {
     return false;
   }
   return hasPermission(user.adminRole, permission);
