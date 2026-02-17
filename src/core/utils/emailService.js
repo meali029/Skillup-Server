@@ -2,16 +2,23 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 
 // Create reusable transporter
+// - `EMAIL_DEBUG=true` enables nodemailer debug output (only enable temporarily)
+// - `EMAIL_CONNECTION_TIMEOUT` controls SMTP connection timeout (ms)
 const createTransporter = () => {
-  return nodemailer.createTransport({
+  const transporterOptions = {
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT) || 587,
-    secure: false, // true for 465, false for other ports
+    port: parseInt(process.env.EMAIL_PORT, 10) || 587,
+    secure: process.env.EMAIL_SECURE === 'true' || false, // set true for port 465
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD,
     },
-  });
+    logger: process.env.EMAIL_DEBUG === 'true',
+    debug: process.env.EMAIL_DEBUG === 'true',
+    connectionTimeout: parseInt(process.env.EMAIL_CONNECTION_TIMEOUT, 10) || 10000,
+  };
+
+  return nodemailer.createTransport(transporterOptions);
 };
 
 // Get frontend URL from environment - CRITICAL for local/production consistency
@@ -131,7 +138,14 @@ export const sendEmailVerification = async (email, name, verificationToken) => {
     await transporter.sendMail(mailOptions);
     return { success: true };
   } catch (error) {
-    console.error('[EmailService] Failed to send verification email:', error);
+    console.error('[EmailService] Failed to send verification email:', error?.message || error);
+    console.error('[EmailService] SMTP error details:', {
+      code: error?.code,
+      response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
+      responseCode: error?.responseCode,
+      command: error?.command,
+      stack: error?.stack,
+    });
     throw new Error('Failed to send verification email');
   }
 };
@@ -241,7 +255,14 @@ export const sendOTPEmail = async (email, otp, name) => {
     await transporter.sendMail(mailOptions);
     return { success: true };
   } catch (error) {
-    console.error('Email sending error:', error);
+    console.error('[EmailService] Failed to send OTP email:', error?.message || error);
+    console.error('[EmailService] SMTP error details:', {
+      code: error?.code,
+      response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
+      responseCode: error?.responseCode,
+      command: error?.command,
+      stack: error?.stack,
+    });
     throw new Error('Failed to send OTP email');
   }
 };
@@ -353,7 +374,14 @@ export const sendPasswordResetConfirmation = async (email, name) => {
     await transporter.sendMail(mailOptions);
     return { success: true };
   } catch (error) {
-    console.error('Email sending error:', error);
+    console.error('[EmailService] Failed to send password-reset confirmation email:', error?.message || error);
+    console.error('[EmailService] SMTP error details:', {
+      code: error?.code,
+      response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
+      responseCode: error?.responseCode,
+      command: error?.command,
+      stack: error?.stack,
+    });
     throw new Error('Failed to send confirmation email');
   }
 };
@@ -374,7 +402,14 @@ export const verifyEmailConfig = async () => {
     await Promise.race([verifyPromise, timeout]);
     return true;
   } catch (error) {
-    console.error('❌ Email service configuration error:', error.message);
+    console.error('❌ Email service configuration error:', error?.message || error);
+    console.error('[EmailService] SMTP verify error details:', {
+      code: error?.code,
+      response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
+      responseCode: error?.responseCode,
+      command: error?.command,
+      stack: error?.stack,
+    });
     return false;
   }
 };
