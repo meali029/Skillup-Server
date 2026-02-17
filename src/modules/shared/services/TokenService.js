@@ -3,8 +3,8 @@ import jwt from "jsonwebtoken";
 export const generateToken = (user) => {
   const secret = process.env.JWT_SECRET;
   
-  if (!secret) {
-    throw new Error('JWT_SECRET is not configured. Please set JWT_SECRET environment variable.');
+  if (!secret || secret === 'null' || secret === 'undefined' || secret.length < 32) {
+    throw new Error('JWT_SECRET is not properly configured. Please set a valid JWT_SECRET environment variable (minimum 32 characters).');
   }
   
   return jwt.sign(
@@ -24,8 +24,8 @@ export const generateToken = (user) => {
 export const verifyToken = (token) => {
   const secret = process.env.JWT_SECRET;
   
-  if (!secret) {
-    throw new Error('JWT_SECRET is not configured. Please set JWT_SECRET environment variable.');
+  if (!secret || secret === 'null' || secret === 'undefined' || secret.length < 32) {
+    throw new Error('JWT_SECRET is not properly configured. Please set a valid JWT_SECRET environment variable (minimum 32 characters).');
   }
   
   return jwt.verify(token, secret);
