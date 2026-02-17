@@ -225,7 +225,6 @@ export const validateSanitizedData = (data) => {
   
   for (const pattern of sensitivePatterns) {
     if (pattern.test(dataString)) {
-      console.warn('⚠️  Potential sensitive data detected in sanitized data');
       return false;
     }
   }
@@ -240,7 +239,5 @@ export default {
   removeSensitiveFields,
   validateSanitizedData,
 };
-
-
 
 

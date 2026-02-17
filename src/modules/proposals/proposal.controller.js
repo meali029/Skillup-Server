@@ -84,7 +84,7 @@ export const getClientProposalDetails = asyncHandler(async (req, res) => {
     proposal = await proposalService.clientViewedProposalAndNotify(req.params.id, req.user.id);
   } catch (err) {
     // Non-fatal: continue to return the proposal
-    console.debug('[Notification] client viewed flow error', err.message);
+
   }
 
   // Format the proposal to include profileCompleteness for freelancer

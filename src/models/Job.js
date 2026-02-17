@@ -429,8 +429,6 @@ jobSchema.pre('save', async function(next) {
           }
         }
       );
-      
-      console.log(`[Job Closed] Auto-rejected pending proposals for job: ${this._id}`);
     } catch (error) {
       console.error('[Job Closed] Error rejecting proposals:', error);
       // Don't block job closure if proposal update fails

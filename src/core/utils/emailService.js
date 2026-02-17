@@ -43,10 +43,6 @@ export const sendEmailVerification = async (email, name, verificationToken) => {
     // CRITICAL: Use backend API URL for verification - the backend handles verification and redirects to frontend
     const backendApiUrl = getBackendApiUrl();
     const verificationLink = `${backendApiUrl}/api/auth/verify-email?token=${verificationToken}`;
-    
-    console.log('[EmailService] Sending verification email to:', email);
-    console.log('[EmailService] Verification link:', verificationLink);
-    
     const mailOptions = {
       from: `"SkillUp" <${process.env.EMAIL_USER}>`,
       to: email,
@@ -133,7 +129,6 @@ export const sendEmailVerification = async (email, name, verificationToken) => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log('[EmailService] Verification email sent successfully to:', email);
     return { success: true };
   } catch (error) {
     console.error('[EmailService] Failed to send verification email:', error);

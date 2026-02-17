@@ -234,7 +234,7 @@ class AIService {
         });
         const cached = getCached(cacheKey);
         if (cached) {
-          console.log('[AI Service] Cache hit for match score');
+
           return cached;
         }
 

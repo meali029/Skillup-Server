@@ -84,9 +84,6 @@ export const login = asyncHandler(async (req, res) => {
 export const googleCallback = asyncHandler(async (req, res) => {
   // CRITICAL: Use FRONTEND_URL first, then CLIENT_URL for backward compatibility
   const clientUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
-  
-  console.log('[GoogleCallback] Using client URL:', clientUrl);
-  
   if (!req.user) {
     // Check if there's an error message from passport (e.g., ban/suspension)
     const errorMessage = req.session?.messages?.[0] || 'authentication_failed';
@@ -97,9 +94,6 @@ export const googleCallback = asyncHandler(async (req, res) => {
   res.cookie("token", token, TokenService.getCookieOptions());
   
   const isProfileComplete = req.user.isProfileComplete && req.user.role;
-  
-  console.log('[GoogleCallback] User:', req.user.email, '- Profile complete:', isProfileComplete);
-  
   if (!isProfileComplete) {
     res.redirect(`${clientUrl}/auth/google/callback?token=${encodeURIComponent(token)}&profileIncomplete=true`);
   } else {

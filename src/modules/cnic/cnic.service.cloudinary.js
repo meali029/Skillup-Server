@@ -160,9 +160,6 @@ export const submitCNIC = async (userId, files) => {
     // Upload to Cloudinary
     const timestamp = Date.now();
     const cloudinaryFolder = `skillup/cnic/${userId}`;
-
-    console.log(`📤 Uploading CNIC images to Cloudinary for user ${userId}...`);
-
     // Upload front image
     frontUploadResult = await uploadToCloudinary(
       processedFront,
@@ -178,13 +175,9 @@ export const submitCNIC = async (userId, files) => {
       `back_${timestamp}`,
       { tags: ['cnic', 'back', userId] }
     );
-
-    console.log('✅ CNIC images uploaded to Cloudinary successfully');
-
     // Delete old images after successful upload
     if (oldPublicIds.length > 0) {
       await deleteMultipleFromCloudinary(oldPublicIds);
-      console.log('🗑️ Old CNIC images deleted from Cloudinary');
     }
 
   } catch (uploadError) {
@@ -208,9 +201,6 @@ export const submitCNIC = async (userId, files) => {
   let ocrData = null;
   let verificationConfidence = 0;
   let ocrMatchStatus = 'pending_ocr';
-  
-  console.log('ℹ️ OCR extraction will be performed by admin on-demand');
-  
   user.cnic = {
     ...user.cnic?.toObject?.() || {},
     frontImage: {
@@ -390,8 +380,6 @@ export const getCNICDetails = async (userId) => {
   };
 
   // Debug log to see what ocrData contains
-  console.log('📋 getCNICDetails - ocrData:', JSON.stringify(cnicData.ocrData, null, 2));
-
   return {
     _id: user._id,
     name: user.name,
@@ -528,7 +516,6 @@ export const rejectCNIC = async (userId, adminId, reason) => {
 
   if (publicIdsToDelete.length > 0) {
     await deleteMultipleFromCloudinary(publicIdsToDelete);
-    console.log('🗑️ Rejected CNIC images deleted from Cloudinary');
   }
 
   user.cnic.status = 'rejected';
@@ -594,7 +581,6 @@ export const requestReupload = async (userId, adminId, reason) => {
 
   if (publicIdsToDelete.length > 0) {
     await deleteMultipleFromCloudinary(publicIdsToDelete);
-    console.log('🗑️ CNIC images deleted for reupload request');
   }
 
   user.cnic.status = 'reupload_requested';
@@ -688,19 +674,12 @@ export const runOCRExtraction = async (userId, adminId) => {
   // Get signed URLs for the images
   const frontSignedUrl = await getSignedUrl(user.cnic.frontImage.publicId);
   const backSignedUrl = await getSignedUrl(user.cnic.backImage.publicId);
-
-  console.log(`🔍 Admin ${adminId} triggered OCR extraction for user ${userId}`);
-  console.log('📸 Front image URL ready, starting OCR...');
-
   // Run OCR on the front image (contains CNIC number, name, etc.)
   let ocrData = null;
   let verificationConfidence = 0;
 
   try {
-    console.log('🔄 Starting EasyOCR extraction...');
     const extractedData = await cnicOCRService.extractCNICData(frontSignedUrl);
-    console.log('📋 OCR Extraction Result:', JSON.stringify(extractedData, null, 2));
-
     // Handle both old and new field names from OCR service
     const extractedCnic = extractedData?.extractedCnicNumber || extractedData?.cnic;
     const extractedName = extractedData?.extractedName || extractedData?.name;
@@ -710,18 +689,6 @@ export const runOCRExtraction = async (userId, adminId) => {
     const extractedExpiryDate = extractedData?.extractedDateOfExpiry;
     const extractedGender = extractedData?.extractedGender;
     const confidence = extractedData?.confidence || 0;
-
-    console.log('🔍 Mapped OCR fields:', {
-      extractedCnic,
-      extractedName,
-      extractedFatherName,
-      extractedDOB,
-      extractedIssueDate,
-      extractedExpiryDate,
-      extractedGender,
-      confidence
-    });
-
     if (extractedData && extractedCnic) {
       // Use schema-correct field names (extractedCnicNumber, extractedName, etc.)
       ocrData = {
@@ -739,13 +706,8 @@ export const runOCRExtraction = async (userId, adminId) => {
         rawText: extractedData.rawText || { front: '', back: '' },
         errors: extractedData.errors || [],
       };
-      
-      console.log('✅ ocrData object created:', JSON.stringify(ocrData, null, 2));
       verificationConfidence = confidence;
-
-      console.log(`✅ OCR extraction successful! Confidence: ${verificationConfidence.toFixed(1)}%`);
     } else {
-      console.log('⚠️ OCR could not extract valid CNIC data');
     }
   } catch (ocrError) {
     console.error('❌ OCR extraction failed:', ocrError.message);
@@ -768,9 +730,6 @@ export const runOCRExtraction = async (userId, adminId) => {
   }
 
   await user.save();
-
-  console.log(`✅ OCR data saved for user ${userId}`);
-
   return {
     message: ocrData?.extractedCnicNumber 
       ? `OCR extraction completed successfully. Confidence: ${verificationConfidence.toFixed(1)}%`

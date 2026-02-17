@@ -61,7 +61,6 @@ const aiConfig = {
 export const validateAIConfig = () => {
   if (aiConfig.enabled && aiConfig.provider === 'gemini') {
     if (!aiConfig.gemini.apiKey) {
-      console.warn('⚠️  GEMINI_API_KEY not set. AI features will be disabled.');
       return false;
     }
   }
@@ -76,7 +75,5 @@ export const isAIEnabled = () => {
 };
 
 export default aiConfig;
-
-
 
 

@@ -294,7 +294,6 @@ class RateLimiterService {
     }
 
     if (cleaned > 0) {
-      console.log(`[Rate Limiter] Cleaned up ${cleaned} expired user entries`);
     }
   }
 

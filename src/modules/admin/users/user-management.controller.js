@@ -50,18 +50,11 @@ export const getUserById = asyncHandler(async (req, res) => {
  */
 export const suspendUser = asyncHandler(async (req, res) => {
   const { reason } = req.body;
-  console.log('=== SUSPEND USER CONTROLLER ===');
-  console.log('User ID:', req.params.id);
-  console.log('Reason:', reason);
-  console.log('Admin:', req.user);
-
   const user = await userManagementService.suspendUser(
     req.params.id,
     reason,
     req.user.id
   );
-  console.log('Suspended user:', user._id, 'isActive:', user.isActive);
-
   // Create audit log
   await createAuditLog({
     adminId: req.user.id,
@@ -92,18 +85,11 @@ export const suspendUser = asyncHandler(async (req, res) => {
  */
 export const banUser = asyncHandler(async (req, res) => {
   const { reason } = req.body;
-  console.log('=== BAN USER CONTROLLER ===');
-  console.log('User ID:', req.params.id);
-  console.log('Reason:', reason);
-  console.log('Admin:', req.user);
-
   const user = await userManagementService.banUser(
     req.params.id,
     reason,
     req.user.id
   );
-  console.log('Banned user:', user._id, 'isBanned:', user.isBanned, 'isActive:', user.isActive);
-
   // Create audit log
   await createAuditLog({
     adminId: req.user.id,

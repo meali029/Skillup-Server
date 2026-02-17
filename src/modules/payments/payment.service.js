@@ -186,7 +186,6 @@ class PaymentService {
                 await contract.save();
                 
                 // TODO: Send notification to freelancer that contract is ready for acceptance
-                console.log(`Contract ${contract._id} payment completed, ready for freelancer acceptance`);
               }
             }
           }

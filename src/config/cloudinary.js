@@ -35,8 +35,6 @@ const configureCloudinary = () => {
     api_secret: process.env.CLOUDINARY_API_SECRET,
     secure: true, // Always use HTTPS
   });
-
-  console.log('✅ Cloudinary configured successfully');
   return true;
 };
 
@@ -109,8 +107,6 @@ export const deleteFromCloudinary = async (publicId) => {
     if (result.result === 'ok' || result.result === 'not found') {
       return { success: true, publicId };
     }
-    
-    console.warn(`Cloudinary deletion warning for ${publicId}:`, result);
     return { success: false, result };
   } catch (error) {
     console.error(`Cloudinary deletion error for ${publicId}:`, error);

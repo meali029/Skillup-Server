@@ -9,17 +9,12 @@ import AppError from '../../core/errors/AppError.js';
  * @access  Private (Client only)
  */
 export const createFromProposal = asyncHandler(async (req, res) => {
-  console.log('🔵 [createFromProposal Controller] Started');
-  console.log('🔵 Request Body:', JSON.stringify(req.body, null, 2));
-  console.log('🔵 User:', req.user);
-  
   if (!req.user) {
     throw AppError('Not authenticated', 401);
   }
   
   // Auth middleware sets req.user.id (not _id)
   const userId = req.user.id;
-  console.log('🔵 User ID:', userId);
   
   if (!userId) {
     throw AppError('User ID not found in session', 401);
@@ -27,7 +22,6 @@ export const createFromProposal = asyncHandler(async (req, res) => {
   
   const { proposalId, terms, deadline, milestones, paymentData } = req.body;
   
-  console.log('🔵 Calling contractService.createFromProposal...');
   const result = await contractService.createFromProposal(
     proposalId,
     userId,
@@ -37,10 +31,8 @@ export const createFromProposal = asyncHandler(async (req, res) => {
   
   // Check if result is object with contract property (new format) or just contract (old format)
   if (result.contract) {
-    console.log('🔵 Contract created successfully:', result.contract._id);
     successResponse(res, result, 'Contract created successfully. Please complete payment.', 201);
   } else {
-    console.log('🔵 Contract created successfully:', result._id);
     successResponse(res, { contract: result }, 'Contract created successfully', 201);
   }
 });
@@ -51,21 +43,7 @@ export const createFromProposal = asyncHandler(async (req, res) => {
  * @access  Private
  */
 export const getMyContracts = asyncHandler(async (req, res) => {
-  // [CONTRACTS][DEBUG] 1. REQUEST ENTRY LOG
-  console.log('\n========================================');
-  console.log('[CONTRACTS][DEBUG][REQUEST] GET /api/contracts called');
-  console.log('[CONTRACTS][DEBUG][REQUEST] userId:', req.user?.id);
-  console.log('[CONTRACTS][DEBUG][REQUEST] userRole:', req.user?.role);
-  console.log('[CONTRACTS][DEBUG][REQUEST] rawQuery:', JSON.stringify(req.query));
-  console.log('========================================\n');
-
   const { status, role, page, limit, sortBy, order } = req.query;
-  
-  // [CONTRACTS][DEBUG] Resolved filter values
-  console.log('[CONTRACTS][DEBUG][FILTERS] status:', status || 'ALL');
-  console.log('[CONTRACTS][DEBUG][FILTERS] role:', role || 'BOTH');
-  console.log('[CONTRACTS][DEBUG][FILTERS] page:', page || 1);
-  console.log('[CONTRACTS][DEBUG][FILTERS] limit:', limit || 10);
   
   // Pass user's role to service for proper access control
   const result = await contractService.getContractsByUser(
@@ -80,16 +58,6 @@ export const getMyContracts = asyncHandler(async (req, res) => {
     },
     req.user.role // Pass user's actual role
   );
-
-  // [CONTRACTS][DEBUG] 5. RESPONSE LOG
-  console.log('\n========================================');
-  console.log('[CONTRACTS][DEBUG][RESPONSE] Contracts count:', result.contracts?.length || 0);
-  console.log('[CONTRACTS][DEBUG][RESPONSE] Contract IDs:', result.contracts?.map(c => c._id) || []);
-  console.log('[CONTRACTS][DEBUG][RESPONSE] Statuses:', result.contracts?.map(c => c.status) || []);
-  if (result.pagination) {
-    console.log('[CONTRACTS][DEBUG][RESPONSE] Pagination:', JSON.stringify(result.pagination));
-  }
-  console.log('========================================\n');
 
   if (result.pagination) {
     paginatedResponse(
@@ -111,12 +79,6 @@ export const getMyContracts = asyncHandler(async (req, res) => {
  */
 export const getContract = asyncHandler(async (req, res) => {
   // [CONTRACT][AUTH] Log user context before service call
-  console.log('\\n[CONTRACT][CONTROLLER] GET /api/contracts/:id called');
-  console.log('[CONTRACT][CONTROLLER] req.params.id:', req.params.id);
-  console.log('[CONTRACT][CONTROLLER] req.user:', req.user);
-  console.log('[CONTRACT][CONTROLLER] req.user.id:', req.user?.id);
-  console.log('[CONTRACT][CONTROLLER] req.user.role:', req.user?.role);
-  
   if (!req.user || !req.user.id) {
     throw AppError('Not authenticated', 401);
   }

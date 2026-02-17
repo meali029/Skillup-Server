@@ -30,9 +30,6 @@ class MockPaymentService {
     }
     
     const paymentUrl = `${apiUrl}/api/payments/callback/mock?txnRef=${mockTransactionId}&orderId=${orderId}&amount=${amount}&status=success`;
-    
-    console.log('[MockPaymentService] Generated payment URL:', paymentUrl);
-    
     return {
       success: true,
       paymentUrl: paymentUrl,

@@ -25,7 +25,6 @@ export async function loadEnvFromDatabase() {
   try {
     // Check if mongoose is connected
     if (mongoose.connection.readyState !== 1) {
-      console.warn('[EnvLoader] Database not connected, using .env file only');
       return;
     }
 
@@ -39,7 +38,6 @@ export async function loadEnvFromDatabase() {
     });
 
     cacheTimestamp = Date.now();
-    console.log(`[EnvLoader] Loaded ${variables.length} environment variables from database`);
   } catch (error) {
     console.error('[EnvLoader] Error loading environment variables from database:', error);
     // Continue with .env file values

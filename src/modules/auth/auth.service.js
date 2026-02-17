@@ -66,7 +66,6 @@ export const registerLocal = async (registrationData) => {
   // Send email verification
   try {
     await sendEmailVerification(email, name, emailVerificationToken);
-    console.log('[Auth Service] Verification email sent to:', email);
   } catch (emailError) {
     console.error('[Auth Service] Failed to send verification email:', emailError);
     // Don't fail registration if email fails, but log it
@@ -309,8 +308,6 @@ export const verifyOTPService = async (email, otp) => {
   // Mark OTP as verified so resetPassword can be called without re-supplying the OTP
   user.resetPasswordOTPVerified = true;
   await user.save();
-  console.log('[auth.service] OTP verified and flag set for', user.email);
-  
   return { message: "OTP verified successfully", verified: true };
 };
 
@@ -336,7 +333,6 @@ export const resetPassword = async (email, otp, newPassword) => {
 
   // If OTP was not supplied, require that it's been verified earlier
   if (!otp) {
-    console.log('[auth.service] resetPassword called without otp. user.resetPasswordOTPVerified=', user.resetPasswordOTPVerified);
     if (!user.resetPasswordOTPVerified) {
       throw createAppError("No OTP request found. Please request a new OTP", 400);
     }
@@ -408,9 +404,6 @@ export const verifyEmailToken = async (token) => {
   user.emailVerificationToken = undefined;
   user.emailVerificationExpires = undefined;
   await user.save();
-
-  console.log('[Auth Service] Email verified for user:', user.email);
-
   // Return the full user object for auto-login after verification
   const verifiedUser = await User.findById(user._id).select('-password');
 
@@ -454,7 +447,6 @@ export const resendVerificationEmail = async (email) => {
   // Send verification email
   try {
     await resendEmailVerification(email, user.name, emailVerificationToken);
-    console.log('[Auth Service] Verification email resent to:', email);
   } catch (emailError) {
     console.error('[Auth Service] Failed to resend verification email:', emailError);
     throw createAppError("Failed to send verification email. Please try again later.", 500);

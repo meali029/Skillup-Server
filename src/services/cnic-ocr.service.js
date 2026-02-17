@@ -58,7 +58,7 @@ class CNICOCRService {
         response.pipe(file);
         file.on('finish', () => {
           file.close();
-          console.log(`    Downloaded to: ${tempPath}`);
+
           resolve(tempPath);
         });
       }).on('error', (err) => {
@@ -73,7 +73,7 @@ class CNICOCRService {
     const tempPath = path.join(this.tempDir, `cnic_${uuidv4()}.jpg`);
     const optimized = await sharp(buffer).jpeg({ quality: 95 }).toBuffer();
     await fs.promises.writeFile(tempPath, optimized);
-    console.log(`    Saved to: ${tempPath}`);
+
     return tempPath;
   }
 
@@ -82,20 +82,17 @@ class CNICOCRService {
       try {
         if (fs.existsSync(file)) {
           await fs.promises.unlink(file);
-          console.log(`    Cleaned: ${file}`);
+
         }
       } catch (error) {
-        console.warn(`    Cleanup failed: ${file}`, error.message);
+
       }
     }
   }
 
   async runPaddleOCR(frontPath, backPath = null) {
     return new Promise((resolve, reject) => {
-      console.log('    Running PaddleOCR...');
-      console.log(`      Front: ${frontPath}`);
-      if (backPath) console.log(`      Back: ${backPath}`);
-      
+
       const args = [PYTHON_SCRIPT_PATH, frontPath];
       if (backPath) args.push(backPath);
       
@@ -109,9 +106,6 @@ class CNICOCRService {
       pythonProcess.stdout.on('data', (data) => { stdout += data.toString(); });
       pythonProcess.stderr.on('data', (data) => {
         stderr += data.toString();
-        data.toString().split('\n').filter(l => l.trim()).forEach(line => 
-          console.log(`   [Python] ${line}`)
-        );
       });
       
       pythonProcess.on('close', (code) => {
@@ -125,7 +119,7 @@ class CNICOCRService {
           if (!jsonMatch) throw new Error('No JSON output');
           
           const result = JSON.parse(jsonMatch[0]);
-          console.log('    PaddleOCR completed');
+
           resolve(result);
         } catch (parseError) {
           console.error('    Parse error:', parseError.message);
@@ -161,9 +155,7 @@ class CNICOCRService {
   }
 
   async extractCNICData(frontInput, backInput = null) {
-    console.log('\n' + ''.repeat(60));
-    console.log(' CNIC OCR EXTRACTION - PaddleOCR Engine');
-    console.log(''.repeat(60));
+
 
     const result = {
       success: false,
@@ -185,7 +177,7 @@ class CNICOCRService {
     const tempFiles = [];
 
     try {
-      console.log('\n STEP 1: Preparing front image...');
+
       let frontPath;
       
       if (typeof frontInput === 'string' && frontInput.startsWith('http')) {
@@ -201,7 +193,7 @@ class CNICOCRService {
 
       let backPath = null;
       if (backInput) {
-        console.log('\n STEP 2: Preparing back image...');
+
         if (typeof backInput === 'string' && backInput.startsWith('http')) {
           backPath = await this.downloadImage(backInput);
         } else if (Buffer.isBuffer(backInput)) {
@@ -212,11 +204,8 @@ class CNICOCRService {
         if (backPath) tempFiles.push(backPath);
       }
 
-      console.log('\n STEP 3: Running PaddleOCR...');
       const ocrResult = await this.runPaddleOCR(frontPath, backPath);
 
-      console.log('\n STEP 4: Processing results...');
-      
       if (ocrResult.success) {
         result.success = true;
         result.extractedCnicNumber = ocrResult.extractedCnicNumber;
@@ -237,7 +226,7 @@ class CNICOCRService {
         }
         
         if (result.extractedCnicNumber && !this.validateCNIC(result.extractedCnicNumber)) {
-          console.log(`    CNIC validation failed: ${result.extractedCnicNumber}`);
+
           result.errors.push('CNIC validation failed');
           result.confidence = Math.min(result.confidence, 50);
         }
@@ -251,17 +240,6 @@ class CNICOCRService {
 
       result.isLowConfidence = result.confidence < CONFIDENCE_THRESHOLD;
 
-      console.log('\n' + ''.repeat(60));
-      console.log(' EXTRACTION RESULTS:');
-      console.log(''.repeat(60));
-      console.log(`   CNIC:       ${result.extractedCnicNumber || 'Not found'}`);
-      console.log(`   Confidence: ${result.confidence.toFixed(1)}% ${result.isLowConfidence ? '(LOW)' : '(GOOD)'}`);
-      console.log(`   Method:     ${result.extractionMethod}`);
-      console.log(`   Name:       ${result.extractedName || 'N/A'}`);
-      console.log(`   Father:     ${result.extractedFatherName || 'N/A'}`);
-      console.log(`   DOB:        ${result.extractedDateOfBirth?.toISOString().split('T')[0] || 'N/A'}`);
-      console.log(`   Gender:     ${result.extractedGender || 'N/A'}`);
-      console.log(''.repeat(60) + '\n');
 
     } catch (error) {
       console.error(' OCR failed:', error.message);
@@ -298,12 +276,12 @@ class CNICOCRService {
   }
 
   async initialize() {
-    console.log('ℹ PaddleOCR initializes on first use');
+
     return true;
   }
 
   async terminate() {
-    console.log('ℹ PaddleOCR terminates after each call');
+
   }
 
   async checkPaddleOCR() {

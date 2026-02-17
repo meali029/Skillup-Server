@@ -10,7 +10,6 @@ export function initializePassport() {
     // CRITICAL: Use environment-based callback URL - NO hardcoded localhost
     const callbackURL = process.env.GOOGLE_CALLBACK_URL;
     if (!callbackURL) {
-      console.warn('[Passport] WARNING: GOOGLE_CALLBACK_URL not set. Google OAuth may not work correctly.');
     }
     
     passport.use(new GoogleStrategy({
@@ -54,14 +53,12 @@ export function initializePassport() {
           // This allows users to login with BOTH password AND Google
           if (!user.googleId) {
             user.googleId = profile.id;
-            console.log('[Passport] Linked Google account to existing user:', user.email);
           }
           
           // Only set provider to 'google' if user doesn't have a password (pure OAuth user)
           // If user has password, keep provider as 'local' or set to 'both' to indicate linked account
           if (user.provider === 'local') {
             user.provider = 'both'; // User can login with both password and Google
-            console.log('[Passport] User can now login with both password and Google:', user.email);
           }
           
           // Update avatar only if user doesn't have one
@@ -87,8 +84,6 @@ export function initializePassport() {
           isEmailVerified: true,
           isProfileComplete: false
         });
-        
-        console.log('[Passport] New Google user created:', user.email, '- Profile incomplete, email verified');
         return done(null, user);
       } catch (error) {
         console.error('[Passport] Google OAuth error:', error);
@@ -96,7 +91,6 @@ export function initializePassport() {
       }
     }));
   } else {
-    console.warn('[Passport] Google OAuth not configured - missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
   }
 
   // Serialize user for session

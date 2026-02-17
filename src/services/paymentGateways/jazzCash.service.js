@@ -12,7 +12,6 @@ import { getEnv } from '../../core/utils/envLoader.js';
 class JazzCashService {
   constructor() {
     this.mockService = mockPaymentService;
-    console.log('[JazzCashService] Initialized - mode will be checked dynamically on each request');
   }
 
   /**
@@ -64,13 +63,10 @@ class JazzCashService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      console.log('[JazzCashService] TESTING MODE - Using mock service for payment initialization');
       return this.mockService.initializePayment(paymentData);
     }
 
     // PRODUCTION MODE - Use real JazzCash API
-    console.log('[JazzCashService] PRODUCTION MODE - Using real JazzCash API');
-    
     const { amount, orderId, customerEmail, customerName, customerPhone } = paymentData;
     const creds = this.getCredentials();
 
@@ -115,7 +111,6 @@ class JazzCashService {
     try {
       // In sandbox mode, return mock payment URL for JazzCash testing
       if (creds.sandbox) {
-        console.log('[JazzCashService] PRODUCTION (Sandbox) - Using JazzCash sandbox');
         return {
           success: true,
           paymentUrl: `${baseUrl}/payment?txnRef=${payload.pp_TxnRefNo}`,
@@ -125,7 +120,6 @@ class JazzCashService {
       }
 
       // Production mode - make actual API call to JazzCash
-      console.log('[JazzCashService] PRODUCTION (Live) - Making real API call to JazzCash');
       const response = await axios.post(
         `${baseUrl}/api/payment/initiate`,
         payload,
@@ -181,12 +175,10 @@ class JazzCashService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      console.log('[JazzCashService] TESTING MODE - Using mock service for payment verification');
       return this.mockService.verifyPayment(callbackData);
     }
 
     // PRODUCTION MODE
-    console.log('[JazzCashService] PRODUCTION MODE - Verifying real JazzCash payment');
     const creds = this.getCredentials();
 
     const {
@@ -229,12 +221,10 @@ class JazzCashService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      console.log('[JazzCashService] TESTING MODE - Using mock service for withdrawal');
       return this.mockService.processWithdrawal(withdrawalData);
     }
 
     // PRODUCTION MODE
-    console.log('[JazzCashService] PRODUCTION MODE - Processing real JazzCash withdrawal');
     const creds = this.getCredentials();
     const { amount, accountNumber, phoneNumber, cnic } = withdrawalData;
 
@@ -265,7 +255,6 @@ class JazzCashService {
     try {
       if (creds.sandbox) {
         // Sandbox mode - return mock success
-        console.log('[JazzCashService] PRODUCTION (Sandbox) - Using JazzCash sandbox for withdrawal');
         return {
           success: true,
           transactionId: ppTxnRefNo,
@@ -276,7 +265,6 @@ class JazzCashService {
       }
 
       // Production mode - make actual API call
-      console.log('[JazzCashService] PRODUCTION (Live) - Making real API call for withdrawal');
       const response = await axios.post(
         `${baseUrl}/api/withdrawal`,
         payload,

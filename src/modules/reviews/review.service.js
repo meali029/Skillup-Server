@@ -26,8 +26,6 @@ class ReviewService {
    * @returns {Object} Updated contract with review
    */
   async submitReview(contractId, reviewerId, reviewData) {
-    console.log('[REVIEW][SUBMIT] Starting review submission:', { contractId, reviewerId, reviewData });
-    
     // Fetch contract with parties populated
     const contract = await Contract.findById(contractId)
       .populate('client', 'name email rating')
@@ -36,13 +34,6 @@ class ReviewService {
     if (!contract) {
       throw createAppError('Contract not found', 404);
     }
-
-    console.log('[REVIEW][SUBMIT] Contract found:', { 
-      id: contract._id, 
-      status: contract.status,
-      clientReview: contract.clientReview,
-      freelancerReview: contract.freelancerReview
-    });
 
     // Business Rule: Contract must be completed
     if (contract.status !== CONTRACT_STATUS.COMPLETED) {
@@ -130,8 +121,6 @@ class ReviewService {
         name: revieweeName,
       },
     };
-    
-    console.log('[REVIEW][SUBMIT] Review submitted successfully:', result);
     return result;
   }
 
@@ -145,15 +134,10 @@ class ReviewService {
    * @param {string} userId - The user whose rating to recalculate
    */
   async recalculateUserRating(userId) {
-    console.log('[REVIEW][RECALCULATE] Starting rating recalculation for user:', userId);
-    
     const user = await User.findById(userId);
     if (!user) {
       throw createAppError('User not found for rating recalculation', 404);
     }
-
-    console.log('[REVIEW][RECALCULATE] Current rating:', user.rating);
-
     // Get all completed contracts where user participated
     // For freelancers: look at clientReview (client's review OF the freelancer)
     // For clients: look at freelancerReview (freelancer's review OF the client)
@@ -173,17 +157,11 @@ class ReviewService {
         'freelancerReview.rating': { $exists: true },
       }).select('freelancerReview.rating'),
     ]);
-
-    console.log('[REVIEW][RECALCULATE] Found reviews - as freelancer:', freelancerReviews.length, 'as client:', clientReviews.length);
-
     // Combine all ratings
     const allRatings = [
       ...freelancerReviews.map(c => c.clientReview.rating),
       ...clientReviews.map(c => c.freelancerReview.rating),
     ];
-
-    console.log('[REVIEW][RECALCULATE] All ratings:', allRatings);
-
     // Calculate new average
     let newAverage = 0;
     let newCount = allRatings.length;
@@ -192,17 +170,11 @@ class ReviewService {
       const sum = allRatings.reduce((acc, rating) => acc + rating, 0);
       newAverage = Math.round((sum / newCount) * 10) / 10; // Round to 1 decimal place
     }
-
-    console.log('[REVIEW][RECALCULATE] Calculated new rating - average:', newAverage, 'count:', newCount);
-
     // Update user rating
     await User.findByIdAndUpdate(userId, {
       'rating.average': newAverage,
       'rating.count': newCount,
     });
-
-    console.log('[REVIEW][RECALCULATE] User rating updated successfully');
-
     return { average: newAverage, count: newCount };
   }
 
@@ -215,8 +187,6 @@ class ReviewService {
    * @returns {Object} Review status details
    */
   async getReviewStatus(contractId, userId) {
-    console.log('[REVIEW][STATUS] Getting review status for contract:', contractId, 'user:', userId);
-    
     const contract = await Contract.findById(contractId)
       .populate('client', 'name')
       .populate('freelancer', 'name')
@@ -252,8 +222,6 @@ class ReviewService {
       userReview: isClient ? contract.clientReview : contract.freelancerReview,
       otherPartyReview: isClient ? contract.freelancerReview : contract.clientReview,
     };
-    
-    console.log('[REVIEW][STATUS] Status result:', status);
     return status;
   }
 
@@ -267,9 +235,6 @@ class ReviewService {
   async getUserReviews(userId, options = {}) {
     const { page = 1, limit = 10, sort = 'recent' } = options;
     const skip = (page - 1) * limit;
-
-    console.log('[REVIEW][GET_USER_REVIEWS] Fetching reviews for userId:', userId);
-
     // Find all contracts where user received a review
     const [freelancerContracts, clientContracts] = await Promise.all([
       // User as freelancer - received clientReview
@@ -294,19 +259,6 @@ class ReviewService {
         .select('freelancerReview freelancer job createdAt')
         .sort({ 'freelancerReview.createdAt': -1 }),
     ]);
-
-    console.log('[REVIEW][GET_USER_REVIEWS] Found contracts - freelancer:', freelancerContracts.length, 'client:', clientContracts.length);
-    console.log('[REVIEW][GET_USER_REVIEWS] Freelancer contract IDs:', freelancerContracts.map(c => c._id.toString()));
-    console.log('[REVIEW][GET_USER_REVIEWS] Freelancer contracts details:', freelancerContracts.map(c => ({
-      contractId: c._id.toString(),
-      jobTitle: c.job?.title || 'Unknown Job',
-      clientName: c.client?.name,
-      rating: c.clientReview?.rating,
-      comment: c.clientReview?.comment,
-      createdAt: c.clientReview?.createdAt
-    })));
-    console.log('[REVIEW][GET_USER_REVIEWS] Client contract IDs:', clientContracts.map(c => c._id.toString()));
-
     // Transform and combine reviews (deduplicate by contractId)
     const reviewsMap = new Map();
     
@@ -330,7 +282,6 @@ class ReviewService {
           reviewType: 'received_as_freelancer',
         });
       } else {
-        console.log('[REVIEW][GET_USER_REVIEWS] DUPLICATE FOUND! Contract ID:', contractIdStr, 'already in map');
       }
     });
     
@@ -354,22 +305,11 @@ class ReviewService {
           reviewType: 'received_as_client',
         });
       } else {
-        console.log('[REVIEW][GET_USER_REVIEWS] DUPLICATE FOUND! Contract ID:', contractIdStr, 'already in map');
       }
     });
     
     // Convert map to array
     const reviews = Array.from(reviewsMap.values());
-    
-    console.log('[REVIEW][GET_USER_REVIEWS] Total unique reviews after deduplication:', reviews.length);
-    console.log('[REVIEW][GET_USER_REVIEWS] Review details:', reviews.map(r => ({
-      contractId: r.contractId.toString(),
-      reviewer: r.reviewer.name,
-      rating: r.rating,
-      comment: r.comment,
-      createdAt: r.createdAt
-    })));
-
     // Sort combined reviews
     if (sort === 'recent') {
       reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -382,9 +322,6 @@ class ReviewService {
     // Apply pagination
     const total = reviews.length;
     const paginatedReviews = reviews.slice(skip, skip + limit);
-    
-    console.log('[REVIEW][GET_USER_REVIEWS] Returning', paginatedReviews.length, 'reviews (page', page, 'of', Math.ceil(total / limit), ')');
-
     // Get user's current rating
     const user = await User.findById(userId).select('name rating');
 

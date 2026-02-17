@@ -94,13 +94,6 @@ class MessageService {
   }
 
   async sendMessage(conversationId, senderId, messageData, files = []) {
-    console.log('💬 [sendMessage] Service called with:', {
-      conversationId,
-      senderId,
-      messageData: { ...messageData, content: messageData.content?.substring(0, 50) + '...' },
-      filesCount: files.length,
-      embeds: messageData.embeds
-    });
 
     const conversation = await Conversation.findById(conversationId);
 
@@ -130,7 +123,6 @@ class MessageService {
       embeds: messageData.embeds || [],
     });
 
-    console.log('📦 [sendMessage] Saving message with embeds:', messageData.embeds);
     await message.save();
     await message.markAsRead(senderId);
 

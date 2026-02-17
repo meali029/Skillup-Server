@@ -575,10 +575,8 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  console.log(`[Recommendations] Found ${proposals.length} pending proposals for job ${jobId}`);
-
   if (proposals.length === 0) {
-    console.log('[Recommendations] No proposals found for this job');
+
     return [];
   }
 
@@ -590,8 +588,6 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
            freelancer.isBanned !== true &&
            freelancer.role === 'freelancer';
   });
-
-  console.log(`[Recommendations] ${validProposals.length} valid proposals after filtering`);
 
   if (validProposals.length === 0) {
     return [];
@@ -625,8 +621,6 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
   try {
     // Use AI to rank proposals based on proposal quality, profile, and contract history
     const aiRankings = await aiService.rankProposalsWithAI(job, proposalsWithData);
-    
-    console.log(`[Recommendations] AI ranked ${aiRankings.length} proposals`);
 
     // Transform to expected format with proposal data included
     const rankedFreelancers = aiRankings.map((ranking) => {
@@ -671,8 +665,6 @@ export const getRecommendedFreelancers = async (jobId, options = {}) => {
       const score = f.matchScore || f.aiScore || 0;
       return score >= minScore;
     });
-    
-    console.log(`[Recommendations] After filtering (minScore=${minScore}): ${filteredFreelancers.length} freelancers`);
 
     return filteredFreelancers.slice(0, limit);
   } catch (error) {

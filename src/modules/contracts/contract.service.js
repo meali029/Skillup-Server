@@ -36,62 +36,41 @@ class ContractService {
    */
   async createFromProposal(proposalId, clientId, contractData, paymentData = null) {
     try {
-      console.log('🟢 [createFromProposal Service] Started');
-      console.log('🟢 Proposal ID:', proposalId);
-      console.log('🟢 Client ID:', clientId);
-      console.log('🟢 Contract Data:', JSON.stringify(contractData, null, 2));
-
       // Business Rule: Validate authentication
       if (!clientId) {
-        console.log('🔴 Client ID is undefined!');
         throw createAppError('Not authenticated', 401);
       }
 
       // Business Rule: Validate proposal exists and populate related data
-      console.log('🟢 Finding proposal...');
       const proposal = await Proposal.findById(proposalId)
         .populate('jobId')
         .populate('freelancerId');
 
       if (!proposal) {
-        console.log('🔴 Proposal not found!');
         throw createAppError('Proposal not found', 404);
       }
-      console.log('🟢 Proposal found:', proposal._id, 'Status:', proposal.status);
 
       // Business Rule: Validate related entities exist
       if (!proposal.jobId) {
-        console.log('🔴 Job not populated or not found!');
         throw createAppError('Job associated with proposal not found', 404);
       }
       if (!proposal.freelancerId) {
-        console.log('🔴 Freelancer not populated or not found!');
         throw createAppError('Freelancer associated with proposal not found', 404);
       }
 
       // Business Rule: Only accepted proposals can be converted to contracts
       if (proposal.status !== 'accepted') {
-        console.log('🔴 Proposal status is not accepted:', proposal.status);
         throw createAppError('Only accepted proposals can be converted to contracts', 400);
       }
-      console.log('🟢 Proposal status is accepted');
 
       // Business Rule: Prevent duplicate contracts for same proposal
-      console.log('🟢 Checking for existing contract...');
       const existingContract = await Contract.findOne({ proposal: proposalId });
       if (existingContract) {
-        console.log('🔴 Contract already exists:', existingContract._id);
         throw createAppError('Contract already exists for this proposal', 400);
       }
-      console.log('🟢 No existing contract found');
 
       // Business Rule: Only job owner (client) can create contract
-      console.log('🟢 Verifying client ownership...');
-      console.log('🟢 Job client ID:', proposal.jobId.client);
-      console.log('🟢 Current client ID:', clientId);
-
       if (!proposal.jobId.client) {
-        console.log('🔴 Job client is undefined!');
         throw createAppError('Job client information is missing', 500);
       }
 
@@ -100,25 +79,17 @@ class ContractService {
       const currentClientStr = clientId.toString();
       const freelancerStr = (proposal.freelancerId._id || proposal.freelancerId).toString();
 
-      console.log('🟢 Comparing - Job client:', jobClientStr, 'vs Current client:', currentClientStr);
-
       if (jobClientStr !== currentClientStr) {
-        console.log('🔴 Client mismatch!');
         throw createAppError('Only the job client can create a contract', 403);
       }
-      console.log('🟢 Client verification passed');
 
       // Business Rule: Client and freelancer must be different users
       if (currentClientStr === freelancerStr) {
-        console.log('🔴 Client and freelancer are the same user!');
         throw createAppError('Client and freelancer must be different users', 400);
       }
-      console.log('🟢 Client and freelancer are different users');
 
       const jobId = proposal.jobId._id || proposal.jobId;
       const freelancerId = proposal.freelancerId._id || proposal.freelancerId;
-
-      console.log('🟢 Extracted IDs - Job:', jobId, 'Client:', jobClientStr, 'Freelancer:', freelancerId);
 
       // Calculate total amount (use totalAmount or sum of milestones)
       const totalAmount = contractData.totalAmount || 
@@ -126,15 +97,12 @@ class ContractService {
           ? contractData.milestones.reduce((sum, m) => sum + (m.amount || 0), 0)
           : proposal.bidAmount);
 
-      console.log('🟢 Total amount calculated:', totalAmount);
-
       // Validate payment data is provided
       if (!paymentData || !paymentData.paymentMethod) {
         throw createAppError('Payment method is required to create contract', 400);
       }
 
       // Create escrow for total contract amount BEFORE creating contract
-      console.log('🟢 Creating contract-level escrow...');
       const escrow = await escrowService.createEscrow(
         null, // contractId not yet created
         'TOTAL', // special milestoneId for total contract escrow
@@ -144,15 +112,12 @@ class ContractService {
           freelancerId: freelancerId,
         }
       );
-      console.log('🟢 Escrow created:', escrow._id);
 
       let paymentResult;
       let isWalletPayment = paymentData.paymentMethod === 'WALLET';
 
       if (isWalletPayment) {
         // WALLET PAYMENT: Deduct from wallet and fund escrow directly
-        console.log('🟢 Processing wallet payment...');
-        
         // Check wallet balance
         const wallet = await walletService.getWallet(clientId);
         if (!wallet || wallet.availableBalance < totalAmount) {
@@ -170,12 +135,10 @@ class ContractService {
           totalAmount,
           escrow._id.toString()
         );
-        console.log('🟢 Funds locked from wallet:', lockResult.transaction?._id);
 
         // Fund escrow with wallet transaction
         await escrow.fund(lockResult.transaction?._id?.toString() || `WALLET-${Date.now()}`, 'WALLET');
         await escrow.save();
-        console.log('🟢 Escrow funded with wallet payment');
 
         paymentResult = {
           transactionId: lockResult.transaction?._id?.toString() || `WALLET-${Date.now()}`,
@@ -185,7 +148,6 @@ class ContractService {
         };
       } else {
         // EXTERNAL PAYMENT: Initialize deposit with escrow linking
-        console.log('🟢 Initializing external payment...');
         paymentResult = await paymentService.initializeDeposit(
           clientId,
           totalAmount,
@@ -199,10 +161,8 @@ class ContractService {
         );
         paymentResult.isWalletPayment = false;
       }
-      console.log('🟢 Payment processed:', paymentResult.transactionId);
 
       // Create contract with escrow reference
-      console.log('🟢 Creating contract object...');
       const contract = new Contract({
         job: jobId,
         proposal: proposal._id,
@@ -223,19 +183,15 @@ class ContractService {
         initialEscrowId: escrow._id,
         paymentTransactionId: paymentResult.transactionId,
       });
-      console.log('🟢 Contract object created, saving...');
 
       await contract.save();
-      console.log('🟢 Contract saved successfully:', contract._id);
 
       // Link escrow to contract after creation
       escrow.contractId = contract._id;
       await escrow.save();
-      console.log('🟢 Escrow linked to contract');
 
       // Auto-fund escrows for milestones defined during contract creation
       if (isWalletPayment && contract.milestones.length > 0) {
-        console.log('🟢 Auto-funding escrows for', contract.milestones.length, 'milestones...');
         for (const milestone of contract.milestones) {
           try {
             const milestoneEscrow = await escrowService.createEscrow(
@@ -254,16 +210,14 @@ class ContractService {
             });
 
             milestone.escrowId = milestoneEscrow._id;
-            console.log('🟢 Auto-funded milestone escrow:', milestone._id);
           } catch (err) {
-            console.error('🔴 Failed to auto-fund milestone escrow:', milestone._id, err.message);
+            console.error('Failed to auto-fund milestone escrow:', milestone._id, err.message);
           }
         }
         await contract.save();
       }
 
       // Create conversation for contract communication
-      console.log('🟢 Creating conversation...');
       await Conversation.findOrCreate(
         [contract.client, contract.freelancer],
         {
@@ -276,16 +230,13 @@ class ContractService {
           },
         }
       );
-      console.log('🟢 Conversation created');
 
       // Populate and return
-      console.log('🟢 Populating contract with related data...');
       const populatedContract = await contract.populate([
         { path: 'client', select: 'name email avatar' },
         { path: 'freelancer', select: 'name email avatar' },
         { path: 'job', select: 'title description' },
       ]);
-      console.log('🟢 Contract populated successfully');
 
       // Return contract with payment information
       return {
@@ -298,8 +249,6 @@ class ContractService {
         escrowId: escrow._id.toString(),
       };
     } catch (error) {
-      console.log('🔴 ERROR in createFromProposal:', error.message);
-      console.log('🔴 ERROR stack:', error.stack);
       throw error;
     }
   }
@@ -319,40 +268,17 @@ class ContractService {
       throw createAppError('Contract not found', 404);
     }
 
-    // [CONTRACT][AUTH] Debug authorization check
-    console.log('\n========================================');
-    console.log('[CONTRACT][AUTH][DEBUG] Authorization Check');
-    console.log('[CONTRACT][AUTH] contractId:', contractId);
-    console.log('[CONTRACT][AUTH] userId:', userId);
-    console.log('[CONTRACT][AUTH] userId type:', typeof userId);
-    console.log('[CONTRACT][AUTH] contract.client:', contract.client);
-    console.log('[CONTRACT][AUTH] contract.client type:', typeof contract.client);
-    console.log('[CONTRACT][AUTH] contract.client._id:', contract.client?._id);
-    console.log('[CONTRACT][AUTH] contract.freelancer:', contract.freelancer);
-    console.log('[CONTRACT][AUTH] contract.freelancer type:', typeof contract.freelancer);
-    console.log('[CONTRACT][AUTH] contract.freelancer._id:', contract.freelancer?._id);
-    
     // Extract IDs safely
     const clientId = (contract.client?._id || contract.client)?.toString();
     const freelancerId = (contract.freelancer?._id || contract.freelancer)?.toString();
     const userIdStr = userId?.toString();
-    
-    console.log('[CONTRACT][AUTH] Extracted clientId:', clientId);
-    console.log('[CONTRACT][AUTH] Extracted freelancerId:', freelancerId);
-    console.log('[CONTRACT][AUTH] Extracted userId:', userIdStr);
-    console.log('[CONTRACT][AUTH] userId === clientId:', userIdStr === clientId);
-    console.log('[CONTRACT][AUTH] userId === freelancerId:', userIdStr === freelancerId);
-    console.log('[CONTRACT][AUTH] canBeViewedBy result:', contract.canBeViewedBy(userId));
-    console.log('========================================\n');
 
     // Business Rule: Authorization - only parties involved can VIEW (read access)
     // Use canBeViewedBy for read operations, not canBeModifiedBy
     if (!contract.canBeViewedBy(userId)) {
-      console.log('[CONTRACT][AUTH][ERROR] Access denied for userId:', userId);
       throw createAppError('You do not have access to this contract', 403);
     }
 
-    console.log('[CONTRACT][AUTH][SUCCESS] Access granted for userId:', userId);
     return contract;
   }
 
@@ -361,39 +287,23 @@ class ContractService {
    * Returns only contracts where user is either client or freelancer
    */
   async getContractsByUser(userId, filters = {}, userRole = null) {
-    // [CONTRACTS][DEBUG] 2. QUERY BUILD LOG - Start
-    console.log('\n========================================');
-    console.log('[CONTRACTS][DEBUG][SERVICE] getContractsByUser called');
-    console.log('[CONTRACTS][DEBUG][SERVICE] userId:', userId);
-    console.log('[CONTRACTS][DEBUG][SERVICE] userRole:', userRole);
-    console.log('[CONTRACTS][DEBUG][SERVICE] filters:', JSON.stringify(filters));
-    console.log('========================================\n');
-
     // Build query to show all contracts where user is either client or freelancer
     let query = {
       $or: [{ client: userId }, { freelancer: userId }],
     };
 
-    // [CONTRACTS][DEBUG] 4. ROLE-BASED BRANCH LOG
-    console.log('[CONTRACTS][DEBUG][ROLE] Initial query:', JSON.stringify(query));
-
     // Apply optional status filter
     if (filters.status) {
       query.status = filters.status;
-      console.log('[CONTRACTS][DEBUG][FILTER] Status filter applied:', filters.status);
     }
     
     // Apply optional role filter to narrow down results
     if (filters.role === 'client') {
-      console.log('[CONTRACTS][DEBUG][ROLE] Branch: CLIENT');
       query = { client: userId };
       if (filters.status) query.status = filters.status;
     } else if (filters.role === 'freelancer') {
-      console.log('[CONTRACTS][DEBUG][ROLE] Branch: FREELANCER');
       query = { freelancer: userId };
       if (filters.status) query.status = filters.status;
-    } else {
-      console.log('[CONTRACTS][DEBUG][ROLE] Branch: BOTH (using $or)');
     }
 
     const page = parseInt(filters.page) || 1;
@@ -402,14 +312,6 @@ class ContractService {
     const sortBy = filters.sortBy || 'createdAt';
     const order = filters.order === 'asc' ? 1 : -1;
 
-    // [CONTRACTS][DEBUG] 2. QUERY BUILD LOG - Final Query
-    console.log('\n========================================');
-    console.log('[CONTRACTS][DEBUG][QUERY] Final MongoDB query:', JSON.stringify(query));
-    console.log('[CONTRACTS][DEBUG][QUERY] Pagination - page:', page, 'limit:', limit, 'skip:', skip);
-    console.log('[CONTRACTS][DEBUG][QUERY] Sort:', sortBy, 'order:', order === 1 ? 'asc' : 'desc');
-    console.log('========================================\n');
-
-    console.log('[CONTRACTS][DEBUG][DB] Executing database query...');
     const [contracts, total] = await Promise.all([
       Contract.find(query)
         .populate('client', 'name email avatar')
@@ -422,16 +324,6 @@ class ContractService {
     ]);
 
     // [CONTRACTS][DEBUG] 3. DATABASE RESULT LOG
-    console.log('\n========================================');
-    console.log('[CONTRACTS][DEBUG][RESULT] Query executed successfully');
-    console.log('[CONTRACTS][DEBUG][RESULT] Total count (from countDocuments):', total);
-    console.log('[CONTRACTS][DEBUG][RESULT] Contracts returned:', contracts.length);
-    console.log('[CONTRACTS][DEBUG][RESULT] Contract IDs:', contracts.map(c => c._id.toString()));
-    console.log('[CONTRACTS][DEBUG][RESULT] Contract statuses:', contracts.map(c => c.status));
-    console.log('[CONTRACTS][DEBUG][RESULT] Contract clients:', contracts.map(c => c.client?._id?.toString() || c.client?.toString()));
-    console.log('[CONTRACTS][DEBUG][RESULT] Contract freelancers:', contracts.map(c => c.freelancer?._id?.toString() || c.freelancer?.toString()));
-    console.log('========================================\n');
-
     return {
       contracts,
       pagination: {
@@ -525,7 +417,6 @@ class ContractService {
 
     // Auto-fund milestone escrows when contract becomes active
     if (action === 'accept' && contract.milestones.length > 0) {
-      console.log('[CONTRACT][ACCEPT] Auto-funding escrows for', contract.milestones.length, 'milestones...');
       for (const milestone of contract.milestones) {
         try {
           let milestoneEscrow = await escrowService.getEscrowByMilestone(contractId, milestone._id.toString());
@@ -547,7 +438,6 @@ class ContractService {
             });
 
             milestone.escrowId = milestoneEscrow._id;
-            console.log('[CONTRACT][ACCEPT] Auto-funded milestone escrow:', milestone._id);
           }
         } catch (err) {
           console.error('[CONTRACT][ACCEPT] Failed to auto-fund milestone escrow:', milestone._id, err.message);
@@ -650,8 +540,6 @@ class ContractService {
           // Store escrow ID on milestone
           addedMilestone.escrowId = milestoneEscrow._id;
           await contract.save();
-
-          console.log('[CONTRACT][ADD_MILESTONE] Auto-funded milestone escrow from contract escrow:', addedMilestone._id);
         } catch (fundError) {
           console.error('[CONTRACT][ADD_MILESTONE] Auto-fund failed (milestone still created):', fundError.message);
         }
@@ -743,16 +631,10 @@ class ContractService {
    * Enforces sequential order: only the next pending milestone can be started
    */
   async startMilestone(contractId, milestoneId, freelancerId) {
-    console.log('[START_MILESTONE] Request:', { contractId, milestoneId, freelancerId });
-    
     const contract = await Contract.findById(contractId);
     if (!contract) {
       throw createAppError('Contract not found', 404);
     }
-
-    console.log('[START_MILESTONE] Contract status:', contract.status);
-    console.log('[START_MILESTONE] Contract freelancer:', contract.freelancer);
-    console.log('[START_MILESTONE] Is freelancer?', contract.isFreelancer(freelancerId));
 
     if (!contract.isFreelancer(freelancerId)) {
       throw createAppError('Only the freelancer can start milestones', 403);
@@ -767,8 +649,6 @@ class ContractService {
       throw createAppError('Milestone not found', 404);
     }
 
-    console.log('[START_MILESTONE] Milestone status:', milestone.status);
-
     // Allow transition from pending or revision_requested
     if (milestone.status !== MILESTONE_STATUS.PENDING && milestone.status !== MILESTONE_STATUS.REVISION_REQUESTED) {
       throw createAppError(`Cannot start milestone in ${milestone.status} status`, 400);
@@ -776,10 +656,6 @@ class ContractService {
 
     // Verify escrow is funded before freelancer can start
     let escrow = await escrowService.getEscrowByMilestone(contractId, milestoneId);
-    
-    console.log('[START_MILESTONE] Escrow lookup result:', escrow ? { id: escrow._id, status: escrow.status } : 'NOT_FOUND');
-    console.log('[START_MILESTONE] Contract paymentStatus:', contract.paymentStatus);
-    console.log('[START_MILESTONE] Contract initialEscrowId:', contract.initialEscrowId);
     
     // Auto-fund milestone escrow if contract's total escrow is already funded
     // This handles milestones where the client already paid for the full contract
@@ -791,15 +667,12 @@ class ContractService {
           if (!escrow) {
             try {
               escrow = await escrowService.createEscrow(contractId, milestoneId, milestone.amount);
-              console.log('[START_MILESTONE] Created new escrow:', escrow._id);
             } catch (createErr) {
               // If "already exists" error, try to fetch it again
-              console.log('[START_MILESTONE] createEscrow error:', createErr.message);
               escrow = await Escrow.findOne({ contractId, milestoneId });
               if (!escrow) {
                 throw createErr;
               }
-              console.log('[START_MILESTONE] Found existing escrow after create error:', escrow._id, 'Status:', escrow.status);
             }
           }
           
@@ -821,8 +694,6 @@ class ContractService {
             // Store escrow ID on milestone
             milestone.escrowId = escrow._id;
             await contract.save();
-            
-            console.log('[START_MILESTONE] Auto-funded milestone escrow from contract payment:', milestoneId, 'New status:', escrow.status);
           }
         } catch (autoFundError) {
           console.error('[START_MILESTONE] Auto-fund failed:', autoFundError.message, autoFundError.stack);
@@ -832,14 +703,12 @@ class ContractService {
           );
         }
       } else {
-        console.log('[START_MILESTONE] Blocked: Contract not active or escrow not funded. Contract status:', contract.status, 'Escrow status:', escrow?.status || 'NOT_CREATED');
         throw createAppError(
           'This milestone has not been funded yet. The client must fund the escrow before you can start working.',
           400
         );
       }
     }
-    console.log('[START_MILESTONE] Escrow verified:', escrow._id, 'Status:', escrow.status);
 
     // Sequential enforcement: no other milestone should be in_progress or in_review
     const activeOrReviewMilestone = contract.milestones.find(
@@ -847,14 +716,11 @@ class ContractService {
         (m.status === MILESTONE_STATUS.IN_PROGRESS || m.status === MILESTONE_STATUS.IN_REVIEW)
     );
     if (activeOrReviewMilestone) {
-      console.log('[START_MILESTONE] Blocked: Active milestone found:', activeOrReviewMilestone._id);
       throw createAppError('Another milestone is currently in progress or under review. Complete it first.', 400);
     }
 
     milestone.status = MILESTONE_STATUS.IN_PROGRESS;
     await contract.save();
-
-    console.log('[START_MILESTONE] SUCCESS: Milestone started:', milestoneId);
 
     return contract;
   }
@@ -865,14 +731,10 @@ class ContractService {
    * Deliverables are attached to the milestone
    */
   async submitMilestone(contractId, milestoneId, freelancerId, deliverables = []) {
-    console.log('[SUBMIT_MILESTONE] Request:', { contractId, milestoneId, freelancerId, deliverables: deliverables.length });
-    
     const contract = await Contract.findById(contractId);
     if (!contract) {
       throw createAppError('Contract not found', 404);
     }
-
-    console.log('[SUBMIT_MILESTONE] Contract status:', contract.status);
 
     if (!contract.isFreelancer(freelancerId)) {
       throw createAppError('Only the freelancer can submit milestone work', 403);
@@ -886,8 +748,6 @@ class ContractService {
     if (!milestone) {
       throw createAppError('Milestone not found', 404);
     }
-
-    console.log('[SUBMIT_MILESTONE] Milestone status:', milestone.status);
 
     if (milestone.status !== MILESTONE_STATUS.IN_PROGRESS && milestone.status !== MILESTONE_STATUS.REVISION_REQUESTED) {
       throw createAppError(`Cannot submit milestone in ${milestone.status} status. Must be in progress or revision_requested.`, 400);
@@ -934,8 +794,6 @@ class ContractService {
       console.error('Failed to send milestone submission notification:', error);
     }
 
-    console.log('[CONTRACT][SUBMIT_MILESTONE] Milestone submitted for review:', milestoneId);
-
     return contract;
   }
 
@@ -972,7 +830,6 @@ class ContractService {
         const result = await escrowService.releaseEscrow(escrow._id.toString(), clientId);
         paymentDetails = result.paymentDetails;
       } else if (escrow && escrow.status === 'RELEASED') {
-        console.log('[CONTRACT][APPROVE_MILESTONE] Escrow already released for milestone:', milestoneId);
         paymentDetails = {
           grossAmount: milestone.amount,
           platformFee: milestone.amount * 0.05,
@@ -1037,12 +894,9 @@ class ContractService {
       details: { milestoneId, milestoneTitle: milestone.title, paymentDetails },
     });
 
-    console.log('[CONTRACT][APPROVE_MILESTONE] Milestone approved:', milestoneId);
-
     // Check if ALL milestones are now completed → auto-complete contract
     const allCompleted = contract.milestones.every(m => m.status === MILESTONE_STATUS.COMPLETED);
     if (allCompleted && contract.milestones.length > 0) {
-      console.log('[CONTRACT][APPROVE_MILESTONE] All milestones completed! Auto-completing contract...');
       
       contract.status = CONTRACT_STATUS.COMPLETED;
       contract.completedAt = new Date();
@@ -1070,7 +924,6 @@ class ContractService {
         await User.findByIdAndUpdate(freelancerId, {
           $inc: { completedJobsCount: 1, totalEarnings: freelancerEarnings }
         });
-        console.log('[CONTRACT][APPROVE_MILESTONE] User statistics updated');
       } catch (statsError) {
         console.error('[CONTRACT][APPROVE_MILESTONE] Failed to update user stats:', statsError.message);
       }
@@ -1146,8 +999,6 @@ class ContractService {
     } catch (error) {
       console.error('Failed to send milestone revision notification:', error);
     }
-
-    console.log('[CONTRACT][REVISION_MILESTONE] Revision requested for milestone:', milestoneId);
 
     return contract;
   }
@@ -1342,7 +1193,6 @@ class ContractService {
       // Store escrow ID on milestone
       milestone.escrowId = escrow._id;
       await contract.save();
-      console.log('[CONTRACT][FUND_ESCROW] Stored escrowId on milestone:', milestoneId);
     }
 
     // Check if payment method is WALLET
@@ -1359,7 +1209,6 @@ class ContractService {
             description: `[TEST MODE] Auto-funded PKR ${topUpAmount} for milestone escrow`,
             type: 'DEPOSIT',
           });
-          console.log(`[CONTRACT][FUND_ESCROW][TEST] Auto-credited PKR ${topUpAmount} to wallet for user:`, userId);
         } else {
           throw createAppError(
             `Insufficient wallet balance. Available: PKR ${wallet.availableBalance}, Required: PKR ${milestone.amount}`,
@@ -1372,8 +1221,6 @@ class ContractService {
       await escrowService.fundEscrow(escrow._id.toString(), {
         paymentMethod: 'WALLET',
       });
-
-      console.log('[CONTRACT][FUND_ESCROW] Funded milestone from wallet:', milestoneId);
 
       // Return success without payment URL
       return {
@@ -1576,7 +1423,6 @@ class ContractService {
       const escrow = await Escrow.findById(contract.initialEscrowId);
       
       if (escrow && escrow.status === 'RELEASED') {
-        console.log('[CONTRACT][APPROVE_WORK] Escrow already released, using stored payment details');
         // Use stored payment details if escrow already released
         paymentDetails = contract.paymentDetails || {
           grossAmount: contract.totalAmount,
@@ -1589,7 +1435,6 @@ class ContractService {
         const result = await escrowService.releaseEscrow(contract.initialEscrowId.toString(), clientId);
         paymentDetails = result.paymentDetails;
       } else {
-        console.warn('[CONTRACT][APPROVE_WORK] Escrow not found or in invalid status:', escrow?.status);
       }
     }
 
@@ -1612,7 +1457,6 @@ class ContractService {
     
     // Add client's review of freelancer (if provided)
     if (reviewData && reviewData.rating) {
-      console.log('[CONTRACT][APPROVE_WORK] Adding client review:', reviewData);
       contract.clientReview = {
         rating: reviewData.rating,
         comment: reviewData.comment || '',
@@ -1623,11 +1467,9 @@ class ContractService {
       // Note: ReviewService is exported as a singleton instance, not a class
       const reviewService = (await import('../reviews/review.service.js')).default;
       await reviewService.recalculateUserRating(contract.freelancer.toString());
-      console.log('[CONTRACT][APPROVE_WORK] Freelancer rating recalculated');
     }
     
     await contract.save();
-    console.log('[CONTRACT][APPROVE_WORK] Contract saved with status:', contract.status);
 
     // Populate for notification
     await contract.populate([{ path: 'client' }, { path: 'freelancer' }]);
@@ -1651,7 +1493,6 @@ class ContractService {
           totalSpent: amountPaid
         }
       });
-      console.log('[CONTRACT][APPROVE_WORK] Client statistics updated - completedJobsCount +1, totalSpent +', amountPaid);
 
       // Update freelancer statistics
       const freelancerId = contract.freelancer._id || contract.freelancer;
@@ -1662,7 +1503,6 @@ class ContractService {
           totalEarnings: freelancerEarnings
         }
       });
-      console.log('[CONTRACT][APPROVE_WORK] Freelancer statistics updated - completedJobsCount +1, totalEarnings +', freelancerEarnings);
     } catch (statsError) {
       // Log but don't fail the approval if stats update fails
       console.error('[CONTRACT][APPROVE_WORK] Failed to update user statistics:', statsError.message);

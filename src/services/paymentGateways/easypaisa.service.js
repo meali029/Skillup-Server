@@ -12,7 +12,6 @@ import { getEnv } from '../../core/utils/envLoader.js';
 class EasypaisaService {
   constructor() {
     this.mockService = mockPaymentService;
-    console.log('[EasypaisaService] Initialized - mode will be checked dynamically on each request');
   }
 
   /**
@@ -64,13 +63,10 @@ class EasypaisaService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      console.log('[EasypaisaService] TESTING MODE - Using mock service for payment initialization');
       return this.mockService.initializePayment(paymentData);
     }
 
     // PRODUCTION MODE - Use real Easypaisa API
-    console.log('[EasypaisaService] PRODUCTION MODE - Using real Easypaisa API');
-
     const { amount, orderId, customerEmail, customerName, customerPhone } = paymentData;
     const creds = this.getCredentials();
 
@@ -105,7 +101,6 @@ class EasypaisaService {
     try {
       if (creds.sandbox) {
         // Sandbox mode - return mock payment URL
-        console.log('[EasypaisaService] PRODUCTION (Sandbox) - Using Easypaisa sandbox');
         return {
           success: true,
           paymentUrl: `${baseUrl}/payment?orderRef=${orderId}&txnRef=${transactionRefNumber}`,
@@ -115,7 +110,6 @@ class EasypaisaService {
       }
 
       // Production mode - make actual API call
-      console.log('[EasypaisaService] PRODUCTION (Live) - Making real API call to Easypaisa');
       const response = await axios.post(
         `${baseUrl}/api/payment/initiate`,
         payload,
@@ -168,12 +162,10 @@ class EasypaisaService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      console.log('[EasypaisaService] TESTING MODE - Using mock service for payment verification');
       return this.mockService.verifyPayment(callbackData);
     }
 
     // PRODUCTION MODE
-    console.log('[EasypaisaService] PRODUCTION MODE - Verifying real Easypaisa payment');
     const creds = this.getCredentials();
 
     const {
@@ -215,12 +207,10 @@ class EasypaisaService {
     
     // If in testing mode, use mock service
     if (isTesting) {
-      console.log('[EasypaisaService] TESTING MODE - Using mock service for withdrawal');
       return this.mockService.processWithdrawal(withdrawalData);
     }
 
     // PRODUCTION MODE
-    console.log('[EasypaisaService] PRODUCTION MODE - Processing real Easypaisa withdrawal');
     const creds = this.getCredentials();
     const { amount, accountNumber, phoneNumber, cnic } = withdrawalData;
 
@@ -250,7 +240,6 @@ class EasypaisaService {
     try {
       if (creds.sandbox) {
         // Sandbox mode - return mock success
-        console.log('[EasypaisaService] PRODUCTION (Sandbox) - Using Easypaisa sandbox for withdrawal');
         return {
           success: true,
           transactionId: transactionRefNumber,
@@ -261,7 +250,6 @@ class EasypaisaService {
       }
 
       // Production mode - make actual API call
-      console.log('[EasypaisaService] PRODUCTION (Live) - Making real API call for withdrawal');
       const response = await axios.post(
         `${baseUrl}/api/withdrawal`,
         payload,

@@ -84,9 +84,9 @@ export const uploadAvatar = asyncHandler(async (req, res) => {
     if (currentUser.avatar && currentUser.avatar.includes('cloudinary')) {
       const oldPublicId = currentUser.avatar.split('/').pop().split('.')[0];
       const folderPath = `avatars/${oldPublicId}`;
-      await deleteFromCloudinary(folderPath).catch(err => 
-        console.warn('Failed to delete old avatar:', err.message)
-      );
+      await deleteFromCloudinary(folderPath).catch(err => {
+        // Silent fail on old avatar deletion
+      });
     }
     
     // Update user with new avatar URL

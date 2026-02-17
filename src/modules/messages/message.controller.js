@@ -33,23 +33,22 @@ export const getConversation = asyncHandler(async (req, res) => {
 });
 
 export const sendMessage = asyncHandler(async (req, res) => {
-  console.log('📨 [sendMessage] Received request body:', req.body);
-  console.log('📎 [sendMessage] Received files:', req.files?.length || 0);
+
 
   // Parse embeds if it's a string (from form data)
   if (req.body.embeds && typeof req.body.embeds === 'string') {
-    console.log('🔗 [sendMessage] Parsing embeds string:', req.body.embeds);
+
     try {
       req.body.embeds = JSON.parse(req.body.embeds);
-      console.log('✅ [sendMessage] Parsed embeds:', req.body.embeds);
+
     } catch (error) {
-      console.log('❌ [sendMessage] Failed to parse embeds:', error.message);
+
       req.body.embeds = [];
     }
   } else if (req.body.embeds) {
-    console.log('🔗 [sendMessage] Embeds already parsed:', req.body.embeds);
+
   } else {
-    console.log('🔗 [sendMessage] No embeds in request');
+
   }
 
   const message = await messageService.sendMessage(
