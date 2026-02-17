@@ -156,7 +156,7 @@ dist/
 *.db
 
 # Local uploads/files directory
-uploads/
+upload/
 files/
 
 # PM2 process files
