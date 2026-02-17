@@ -1,6 +1,12 @@
 import jwt from "jsonwebtoken";
 
 export const generateToken = (user) => {
+  const secret = process.env.JWT_SECRET;
+  
+  if (!secret) {
+    throw new Error('JWT_SECRET is not configured. Please set JWT_SECRET environment variable.');
+  }
+  
   return jwt.sign(
     {
       id: user._id || user.id,
@@ -8,7 +14,7 @@ export const generateToken = (user) => {
       role: user.role,
       adminRole: user.adminRole
     },
-    process.env.JWT_SECRET,
+    secret,
     {
       expiresIn: process.env.JWT_EXPIRES_IN || "7d"
     }
@@ -16,7 +22,13 @@ export const generateToken = (user) => {
 };
 
 export const verifyToken = (token) => {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  const secret = process.env.JWT_SECRET;
+  
+  if (!secret) {
+    throw new Error('JWT_SECRET is not configured. Please set JWT_SECRET environment variable.');
+  }
+  
+  return jwt.verify(token, secret);
 };
 
 export const getCookieOptions = () => {
