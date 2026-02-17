@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { AppError, createAppError } from "../../core/errors/index.js";
 import { TokenService } from "../shared/services/index.js";
 import { generateOTPData, verifyOTP as verifyOTPUtil, isOTPExpired } from "../../core/utils/otpService.js";
-import { sendOTPEmail, sendPasswordResetConfirmation, sendEmailVerification, generateEmailVerificationToken, resendEmailVerification } from "../../core/utils/emailService.js";
+import { sendOTPEmail, sendPasswordResetConfirmation, sendEmailVerification, generateEmailVerificationToken, resendEmailVerification, verifyEmailConfig } from "../../core/utils/emailService.js";
 
 export const registerLocal = async (registrationData) => {
   const { 
@@ -434,6 +434,12 @@ export const resendVerificationEmail = async (email) => {
   // Check if user is pure Google provider (should not need verification)
   if (user.provider === 'google') {
     throw createAppError("Google accounts do not require email verification.", 400);
+  }
+
+  // Before generating token, ensure email provider is available (fail fast with clear message)
+  const emailReady = await verifyEmailConfig();
+  if (!emailReady) {
+    throw createAppError('Email service is currently unavailable. Please try again later.', 503);
   }
 
   // Generate new verification token
