@@ -65,6 +65,37 @@ const profileRoutes = createProfileRoutes();
 
 const app = express();
 
+// Trust proxy (required for Railway/Heroku/Render - they run behind a reverse proxy)
+// This allows secure cookies and correct IP detection
+app.set('trust proxy', 1);
+
+// ===== PRODUCTION ERROR LOGGING MIDDLEWARE =====
+// Log all 4xx/5xx responses with useful context
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  
+  // Capture original end to log after response
+  const originalEnd = res.end;
+  res.end = function (...args) {
+    const duration = Date.now() - startTime;
+    const status = res.statusCode;
+    
+    // Only log errors (4xx, 5xx) and slow requests (>5s)
+    if (status >= 400 || duration > 5000) {
+      const logLevel = status >= 500 ? '❌' : '⚠️';
+      console.error(`${logLevel} [${req.method}] ${req.originalUrl} → ${status} (${duration}ms)`);
+      
+      if (status >= 500) {
+        console.error(`   ↳ IP: ${req.ip} | User-Agent: ${req.get('user-agent')?.substring(0, 80)}`);
+      }
+    }
+    
+    originalEnd.apply(this, args);
+  };
+  
+  next();
+});
+
 app.use("/uploads", express.static(join(__dirname, "../uploads")));
 
 app.use(express.json({ limit: '10mb' }));
@@ -87,10 +118,12 @@ const sessionOptions = {
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === "production",
+    // Only set secure:true if actually running behind HTTPS (Railway sets this automatically)
+    // On localhost, secure cookies will BREAK sessions even if NODE_ENV=production
+    secure: process.env.NODE_ENV === "production" && !!(process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.HEROKU),
     maxAge: 1000 * 60 * 60 * 24 * 7,
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    sameSite: process.env.NODE_ENV === "production" && (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.HEROKU) ? "none" : "lax",
   },
 };
 
@@ -100,28 +133,19 @@ if (process.env.NODE_ENV !== 'test') {
   
   if (mongoUri) {
     try {
-      // Build MongoStore config - skip crypto if secret is not properly set
+      // IMPORTANT: Do NOT use crypto - it causes 'Cannot read properties of null (reading length)' 
+      // errors when sessions are read/written. Session encryption is not needed for this app.
       const mongoStoreConfig = {
         mongoUrl: mongoUri,
         touchAfter: 24 * 3600, // lazy session update (only update if 24h passed)
+        collectionName: 'sessions',
       };
       
-      // Only add crypto if we have a valid secret (at least 32 chars)
-      if (sessionSecret && sessionSecret.length >= 32 && sessionSecret !== "your-super-secret-session-key-change-in-production-min-32-chars") {
-        mongoStoreConfig.crypto = {
-          secret: sessionSecret,
-        };
-        console.info('[Session] MongoDB session store configured with encryption');
-      } else {
-        console.warn('⚠️  [Session] MongoDB session store configured WITHOUT encryption (set SESSION_SECRET for encryption)');
-      }
-      
       sessionOptions.store = MongoStore.create(mongoStoreConfig);
-      console.info('[Session] MongoDB session store initialized successfully');
+      console.info('[Session] MongoDB session store initialized successfully (no crypto)');
     } catch (err) {
       console.error('[Session] Failed to initialize Mongo session store:', err.message);
       console.warn('[Session] Falling back to in-memory session store.');
-      // leave sessionOptions.store undefined -> Express default MemoryStore
     }
   } else {
     console.error('[Session] MONGO_URI is not set — using in-memory session store.');

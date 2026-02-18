@@ -630,18 +630,24 @@ function createAuthRoutes() {
           session: true
         }, (err, user, info) => {
           if (err) {
-            // Pass ban/suspension error messages to the client
+            console.error('[Google OAuth] Callback error:', err.message);
+            console.error('[Google OAuth] Error stack:', err.stack);
             const errorMessage = encodeURIComponent(err.message || 'authentication_failed');
             return res.redirect(`${clientURL}/login?error=${errorMessage}`);
           }
           
           if (!user) {
+            console.warn('[Google OAuth] No user returned from strategy. Info:', info);
             return res.redirect(`${clientURL}/login?error=authentication_failed`);
           }
           
-          req.logIn(user, (err) => {
-            if (err) {
-              return next(err);
+          console.info(`[Google OAuth] User authenticated: ${user.email} (provider: ${user.provider})`);
+          
+          req.logIn(user, (loginErr) => {
+            if (loginErr) {
+              console.error('[Google OAuth] Session login error:', loginErr.message);
+              console.error('[Google OAuth] Login error stack:', loginErr.stack);
+              return res.redirect(`${clientURL}/login?error=${encodeURIComponent(loginErr.message || 'session_error')}`);
             }
             next();
           });
