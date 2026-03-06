@@ -14,8 +14,9 @@ import Escrow from "./Escrow.js";
 import Transaction from "./Transaction.js";
 import WithdrawalRequest from "./WithdrawalRequest.js";
 import PlatformWallet from "./PlatformWallet.js";
+import PlatformWithdrawal from "./PlatformWithdrawal.js";
 
-export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest, PlatformWallet };
+export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest, PlatformWallet, PlatformWithdrawal };
 
 export default {
   User,
@@ -31,4 +32,5 @@ export default {
   Transaction,
   WithdrawalRequest,
   PlatformWallet,
+  PlatformWithdrawal,
 };
