@@ -100,7 +100,15 @@ app.use((req, res, next) => {
 
 app.use("/uploads", express.static(join(__dirname, "../uploads")));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, _res, buf) => {
+    // Preserve raw body for webhook signature verification (Safepay)
+    if (req.originalUrl && req.originalUrl.includes('/webhook/')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 

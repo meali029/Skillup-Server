@@ -33,6 +33,12 @@ const router = express.Router();
  */
 router.get('/callback/mock', paymentController.handleMockCallback);
 
+// Safepay webhook (called by Safepay servers - no auth needed, rate limited)
+router.post('/webhook/safepay', paymentRateLimit, paymentController.handleSafepayWebhook);
+
+// Safepay callback redirect (user returns from Safepay checkout - no auth needed, rate limited)
+router.get('/callback/safepay', paymentRateLimit, paymentController.handleSafepayCallback);
+
 /**
  * @swagger
  * /api/payments/mode:
@@ -62,6 +68,12 @@ router.get('/mode', paymentController.getPaymentMode);
 
 // All other routes require authentication
 router.use(authenticate);
+
+// Verify pending Safepay transactions (auto-verify on wallet page load)
+router.post('/safepay/verify-pending', paymentVerificationRateLimit, paymentController.verifySafepayPending);
+
+// Cancel pending Safepay transaction (user cancelled on checkout)
+router.post('/safepay/cancel-pending', paymentVerificationRateLimit, paymentController.cancelSafepayPending);
 
 /**
  * @swagger

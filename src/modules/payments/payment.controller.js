@@ -112,7 +112,7 @@ export const getTransactions = asyncHandler(async (req, res) => {
 
 // Get payment methods
 export const getPaymentMethods = asyncHandler(async (req, res) => {
-  const methods = paymentService.getPaymentMethods();
+  const methods = await paymentService.getPaymentMethods();
   const limits = paymentService.getPaymentLimits();
 
   res.status(200).json({
@@ -309,6 +309,246 @@ export const getMilestoneEscrow = asyncHandler(async (req, res) => {
   });
 });
 
+// Verify pending Safepay transactions for a user (called by frontend on wallet page load)
+export const verifySafepayPending = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  // Find all pending SAFEPAY deposits for this user
+  const pendingTxns = await Transaction.find({
+    userId,
+    paymentMethod: 'SAFEPAY',
+    status: 'PENDING',
+    type: 'DEPOSIT',
+  }).sort({ createdAt: -1 });
+
+  if (pendingTxns.length === 0) {
+    return res.status(200).json({ success: true, data: { verified: 0 } });
+  }
+
+  const safepayService = (await import('../../services/paymentGateways/safepay.service.js')).default;
+  let verified = 0;
+
+  for (const txn of pendingTxns) {
+    try {
+      const result = await safepayService.verifyPaymentByTracker(
+        txn.gatewayTransactionId,
+        txn.description
+      );
+
+      if (result.success) {
+        // Atomic update: only update if still PENDING to prevent double-credit
+        const updated = await Transaction.findOneAndUpdate(
+          { _id: txn._id, status: 'PENDING' },
+          { status: 'SUCCESS', completedAt: new Date(), gatewayTransactionId: result.gatewayTransactionId || txn.gatewayTransactionId },
+          { new: true }
+        );
+        if (updated) {
+          await walletService.creditWallet(txn.userId, txn.amount, updated.gatewayTransactionId);
+          verified++;
+          console.log('Safepay auto-verify: credited', txn.amount, 'to user', txn.userId);
+        }
+      }
+    } catch (err) {
+      console.error('Safepay auto-verify error for txn', txn._id, err.message);
+    }
+  }
+
+  return res.status(200).json({ success: true, data: { verified, pending: pendingTxns.length - verified } });
+});
+
+// Cancel the most recent pending Safepay deposit for a user
+export const cancelSafepayPending = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  const cancelled = await Transaction.findOneAndUpdate(
+    { userId, paymentMethod: 'SAFEPAY', status: 'PENDING', type: 'DEPOSIT' },
+    { status: 'FAILED', failureReason: 'Cancelled by user', completedAt: new Date() },
+    { sort: { createdAt: -1 }, new: true }
+  );
+
+  if (!cancelled) {
+    return res.status(200).json({ success: true, data: { cancelled: 0 } });
+  }
+
+  return res.status(200).json({ success: true, data: { cancelled: 1, transactionId: cancelled._id } });
+});
+
+// Handle Safepay webhook (POST - called by Safepay servers)
+export const handleSafepayWebhook = asyncHandler(async (req, res) => {
+  const signature = req.headers['x-sfpy-signature'] || req.headers['x-safepay-signature'];
+
+  // Import safepay service for signature verification
+  const safepayService = (await import('../../services/paymentGateways/safepay.service.js')).default;
+
+  // Verify webhook signature if secret is configured
+  const creds = safepayService.getCredentials();
+  if (creds.webhookSecret && signature) {
+    const rawBody = req.rawBody || JSON.stringify(req.body);
+    const isValid = safepayService.verifyWebhookSignature(
+      typeof rawBody === 'string' ? rawBody : JSON.stringify(req.body),
+      signature
+    );
+    if (!isValid) {
+      console.warn('Safepay webhook signature mismatch');
+      // In production, reject; in sandbox, continue with warning
+      if (!creds.sandbox) {
+        return res.status(400).json({ error: 'Invalid webhook signature' });
+      }
+    }
+  }
+
+  // Safepay webhook format: { data: { type, notification: { tracker, state, amount, metadata, ... } } }
+  const webhookData = req.body?.data || req.body;
+  const notification = webhookData?.notification || {};
+  const eventType = webhookData?.type || req.body?.type;
+
+  // Extract fields from the notification object
+  const state = notification?.state || webhookData?.state;
+  const tracker = notification?.tracker || webhookData?.tracker;
+  const orderRef = notification?.metadata?.order_id || webhookData?.metadata?.order_id || webhookData?.order_id;
+
+  console.log('Safepay webhook parsed:', { eventType, state, tracker, orderRef });
+
+  // Only process payment-related events
+  if (eventType && !eventType.startsWith('payment:')) {
+    return res.status(200).json({ received: true });
+  }
+
+  // Check if payment is successful
+  const isPaid = state === 'PAID' || state === 'TRACKER_ENDED' || eventType === 'payment:created';
+
+  if (!tracker && !orderRef) {
+    console.log('Safepay webhook: No tracker or order ref, skipping');
+    return res.status(200).json({ received: true });
+  }
+
+  // Find the pending transaction - try tracker first, then orderRef (no dangerous fallback)
+  let transaction;
+
+  if (tracker) {
+    transaction = await Transaction.findOne({
+      gatewayTransactionId: tracker,
+      status: 'PENDING',
+      type: 'DEPOSIT',
+    });
+  }
+
+  if (!transaction && orderRef) {
+    transaction = await Transaction.findOne({
+      gatewayTransactionId: orderRef,
+      status: 'PENDING',
+      type: 'DEPOSIT',
+    }).sort({ createdAt: -1 });
+  }
+
+  if (!transaction) {
+    console.log('Safepay webhook: No pending transaction found', { tracker, orderRef });
+    return res.status(200).json({ received: true });
+  }
+
+  try {
+    if (isPaid) {
+      // Atomic update: only update if still PENDING to prevent double-credit
+      const updated = await Transaction.findOneAndUpdate(
+        { _id: transaction._id, status: 'PENDING' },
+        { status: 'SUCCESS', completedAt: new Date(), gatewayTransactionId: tracker || transaction.gatewayTransactionId },
+        { new: true }
+      );
+      if (updated) {
+        await walletService.creditWallet(updated.userId, updated.amount, updated.gatewayTransactionId);
+        console.log('Safepay webhook: Payment credited', { amount: updated.amount, userId: updated.userId });
+      } else {
+        console.log('Safepay webhook: Transaction already processed', transaction._id);
+      }
+    } else {
+      console.log('Safepay webhook: Payment not in PAID state:', state);
+    }
+  } catch (error) {
+    console.error('Safepay webhook: Error processing payment', error.message);
+  }
+
+  res.status(200).json({ received: true });
+});
+
+// Handle Safepay callback redirect (GET - user returns from Safepay checkout)
+export const handleSafepayCallback = asyncHandler(async (req, res) => {
+  const tracker = req.query.tracker || req.query.ref || req.query.session || req.query.token;
+  const orderId = req.query.order_id || req.query.orderId;
+  const referenceCode = req.query.reference_code || req.query.reference;
+  const sig = req.query.sig || req.query.signature;
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+
+  if (!tracker && !orderId) {
+    return res.redirect(`${clientUrl}/wallet?payment=error&message=Missing+payment+reference`);
+  }
+
+  // Find the pending transaction by tracker or orderId (no dangerous fallback)
+  let transaction;
+  
+  if (tracker) {
+    transaction = await Transaction.findOne({
+      gatewayTransactionId: tracker,
+      status: 'PENDING',
+      type: 'DEPOSIT',
+    });
+  }
+  
+  if (!transaction && orderId) {
+    transaction = await Transaction.findOne({
+      gatewayTransactionId: orderId,
+      status: 'PENDING',
+      type: 'DEPOSIT',
+    }).sort({ createdAt: -1 });
+  }
+
+  if (!transaction) {
+    // Transaction may have already been processed by webhook
+    const searchId = tracker || orderId;
+    const processed = await Transaction.findOne({
+      gatewayTransactionId: searchId,
+      type: 'DEPOSIT',
+    });
+    if (processed && processed.status === 'SUCCESS') {
+      return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${processed._id}`);
+    }
+    return res.redirect(`${clientUrl}/wallet?payment=error&message=Transaction+not+found`);
+  }
+
+  try {
+    // Verify payment status server-side via Safepay API
+    const safepayService = (await import('../../services/paymentGateways/safepay.service.js')).default;
+    const verifyTracker = tracker || transaction.gatewayTransactionId;
+    
+    const verificationResult = await safepayService.verifyPaymentByTracker(verifyTracker, orderId);
+
+    if (verificationResult.success) {
+      // Atomic update: only update if still PENDING to prevent double-credit
+      const updated = await Transaction.findOneAndUpdate(
+        { _id: transaction._id, status: 'PENDING' },
+        { status: 'SUCCESS', completedAt: new Date(), gatewayTransactionId: verificationResult.gatewayTransactionId || verifyTracker },
+        { new: true }
+      );
+
+      if (updated) {
+        await walletService.creditWallet(
+          updated.userId,
+          updated.amount,
+          updated.gatewayTransactionId
+        );
+        return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${updated._id}`);
+      } else {
+        // Already processed by webhook
+        return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${transaction._id}`);
+      }
+    } else {
+      return res.redirect(`${clientUrl}/wallet?payment=failed&message=${encodeURIComponent(verificationResult.responseMessage || 'Payment failed')}`);
+    }
+  } catch (error) {
+    console.error('Safepay callback error:', error.message);
+    return res.redirect(`${clientUrl}/wallet?payment=error&message=${encodeURIComponent(error.message)}`);
+  }
+});
+
 // Handle mock payment callback (for testing mode ONLY)
 export const handleMockCallback = asyncHandler(async (req, res) => {
   // PRODUCTION SAFEGUARD: Block mock payments in production mode
@@ -367,23 +607,23 @@ export const handleMockCallback = asyncHandler(async (req, res) => {
         );
 
         // Redirect to success page
-        const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
         return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${transaction._id}`);
       } catch (error) {
         console.error('Error verifying mock payment:', error);
-        const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
         return res.redirect(`${clientUrl}/wallet?payment=error&message=${encodeURIComponent(error.message)}`);
       }
     } else {
       // Transaction not found - log for debugging
       console.error('Mock payment callback: Transaction not found', { txnRef, orderId, amount });
-      const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
       return res.redirect(`${clientUrl}/wallet?payment=error&message=Transaction not found`);
     }
   }
 
   // If transaction not found or verification failed, redirect to error page
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   return res.redirect(`${clientUrl}/wallet?payment=failed`);
 });
 

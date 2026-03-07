@@ -86,6 +86,19 @@ export const EASYPAISA_CONFIG = {
   },
 };
 
+// Safepay Configuration
+export const SAFEPAY_CONFIG = {
+  sandbox: {
+    baseUrl: 'https://sandbox.api.getsafepay.com',
+    checkoutUrl: 'https://sandbox.api.getsafepay.com/checkout',
+  },
+  production: {
+    baseUrl: 'https://api.getsafepay.com',
+    checkoutUrl: 'https://api.getsafepay.com/checkout',
+  },
+  currency: 'PKR',
+};
+
 // Test Mode Configuration
 export const TEST_MODE_CONFIG = {
   enabled: IS_TEST_MODE,
@@ -128,6 +141,16 @@ export const PAYMENT_METHODS = {
     minAmount: 1000,
     maxAmount: 10000000,
     processingDays: '2-3 business days',
+  },
+  SAFEPAY: {
+    code: 'SAFEPAY',
+    name: 'Safepay',
+    icon: 'safepay',
+    enabled: true,
+    depositEnabled: true,
+    withdrawalEnabled: false,
+    minAmount: 10,
+    maxAmount: 500000,
   },
 };
 
@@ -195,6 +218,7 @@ export default {
   ESCROW_CONFIG,
   JAZZCASH_CONFIG,
   EASYPAISA_CONFIG,
+  SAFEPAY_CONFIG,
   TEST_MODE_CONFIG,
   PAYMENT_METHODS,
   calculatePlatformFee,

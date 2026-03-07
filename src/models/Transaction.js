@@ -84,7 +84,7 @@ const transactionSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SYSTEM'],
+      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SYSTEM', 'SAFEPAY'],
       default: 'WALLET',
     },
     gatewayTransactionId: {

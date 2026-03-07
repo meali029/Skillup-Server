@@ -11,7 +11,7 @@ export const initializeDeposit = Joi.object({
     'any.required': 'Amount is required',
   }),
   paymentMethod: Joi.string()
-    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'SAFEPAY')
     .required()
     .messages({
       'any.only': 'Invalid payment method',
@@ -33,7 +33,7 @@ export const verifyDeposit = Joi.object({
     'any.required': 'Callback data is required',
   }),
   paymentMethod: Joi.string()
-    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'SAFEPAY')
     .required()
     .messages({
       'any.only': 'Invalid payment method',
@@ -52,7 +52,7 @@ export const getTransactions = Joi.object({
     .empty('')
     .optional(),
   paymentMethod: Joi.string()
-    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'STRIPE')
+    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'STRIPE', 'SAFEPAY')
     .empty('')
     .optional(),
   startDate: Joi.date().optional(),
@@ -68,7 +68,7 @@ export const createWithdrawal = Joi.object({
     'any.required': 'Amount is required',
   }),
   paymentMethod: Joi.string()
-    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'SAFEPAY')
     .required()
     .messages({
       'any.only': 'Invalid payment method',
@@ -95,7 +95,7 @@ export const createWithdrawal = Joi.object({
 // Fund milestone escrow validation
 export const fundMilestoneEscrow = Joi.object({
   paymentMethod: Joi.string()
-    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER')
+    .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'SAFEPAY')
     .required()
     .messages({
       'any.only': 'Invalid payment method',
