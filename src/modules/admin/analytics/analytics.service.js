@@ -2,12 +2,21 @@ import User from '../../../models/User.js';
 import Job from '../../../models/Job.js';
 import Proposal from '../../../models/Proposal.js';
 import mongoose from 'mongoose';
+import { cacheGet, cacheSet, cacheDelete } from '../../../config/cache.js';
+
+const DASHBOARD_TTL   = 300;  // 5 minutes
+const CATEGORY_TTL    = 1800; // 30 minutes
+const REPORT_TTL      = 600;  // 10 minutes
 
 class AnalyticsService {
   /**
    * Get dashboard metrics
    */
   async getDashboardMetrics() {
+    // Check Redis cache first
+    const cached = await cacheGet('analytics:dashboard');
+    if (cached) return cached;
+
     const [
       totalRevenue,
       platformFees,
@@ -28,7 +37,7 @@ class AnalyticsService {
       this.getFlaggedJobsCount()
     ]);
 
-    return {
+    const result = {
       totalRevenue,
       platformFees,
       activeUsers,
@@ -38,17 +47,22 @@ class AnalyticsService {
       verificationStats,
       flaggedJobsCount
     };
+
+    await cacheSet('analytics:dashboard', result, DASHBOARD_TTL);
+    return result;
   }
 
   /**
    * Get total revenue
    */
   async getTotalRevenue() {
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const result = await Job.aggregate([
       {
         $match: {
           status: 'completed',
-          'payment.status': 'paid'
+          'payment.status': 'paid',
+          createdAt: { $gte: oneYearAgo }
         }
       },
       {
@@ -67,11 +81,13 @@ class AnalyticsService {
    * Get platform fees collected
    */
   async getPlatformFees() {
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const result = await Job.aggregate([
       {
         $match: {
           status: 'completed',
-          'payment.status': 'paid'
+          'payment.status': 'paid',
+          createdAt: { $gte: oneYearAgo }
         }
       },
       {
@@ -160,37 +176,18 @@ class AnalyticsService {
       {
         $lookup: {
           from: 'jobs',
-          localField: '_id',
-          foreignField: 'assignedFreelancer',
+          let: { userId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$assignedFreelancer', '$$userId'] }, status: 'completed' } },
+            { $project: { budgetAmount: 1 } }
+          ],
           as: 'completedJobs'
         }
       },
       {
         $addFields: {
-          completedCount: {
-            $size: {
-              $filter: {
-                input: '$completedJobs',
-                as: 'job',
-                cond: { $eq: ['$$job.status', 'completed'] }
-              }
-            }
-          },
-          totalEarnings: {
-            $sum: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: '$completedJobs',
-                    as: 'job',
-                    cond: { $eq: ['$$job.status', 'completed'] }
-                  }
-                },
-                as: 'job',
-                in: '$$job.budgetAmount'
-              }
-            }
-          }
+          completedCount: { $size: '$completedJobs' },
+          totalEarnings: { $sum: '$completedJobs.budgetAmount' }
         }
       },
       {
@@ -226,8 +223,11 @@ class AnalyticsService {
       {
         $lookup: {
           from: 'jobs',
-          localField: '_id',
-          foreignField: 'client',
+          let: { userId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$client', '$$userId'] } } },
+            { $project: { status: 1, budgetAmount: 1 } }
+          ],
           as: 'postedJobs'
         }
       },
@@ -384,6 +384,9 @@ class AnalyticsService {
    * Get job category distribution
    */
   async getJobCategoryDistribution() {
+    const cached = await cacheGet('analytics:categories');
+    if (cached) return cached;
+
     const data = await Job.aggregate([
       {
         $match: { status: { $ne: 'draft' } }
@@ -400,6 +403,7 @@ class AnalyticsService {
       }
     ]);
 
+    await cacheSet('analytics:categories', data, CATEGORY_TTL);
     return data;
   }
 

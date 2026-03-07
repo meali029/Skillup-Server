@@ -356,6 +356,8 @@ jobSchema.index({ locationType: 1 });
 jobSchema.index({ client: 1, status: 1 });
 jobSchema.index({ skills: 1 });
 jobSchema.index({ experienceLevel: 1 });
+jobSchema.index({ isFlagged: 1, createdAt: -1 }); // Analytics flagged jobs
+jobSchema.index({ isActive: 1, deletedAt: 1 }); // Soft-delete filtering
 
 // Virtual for checking if deadline passed
 jobSchema.virtual('isExpired').get(function() {

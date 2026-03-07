@@ -11,114 +11,80 @@ import adminSettingsService from '../../modules/admin/admin.settings.service.js'
 import aiConfig from '../../config/ai.config.js';
 import circuitBreaker from './circuit-breaker.js';
 import rateLimiterService from './rate-limiter.service.js';
+import { cacheGet, cacheSet, cacheDelete, cacheClear } from '../../config/cache.js';
+import { isRedisConnected } from '../../config/redis.js';
 import {
   AIProviderError,
   AIConfigurationError,
 } from '../../core/errors/ai.errors.js';
 
-// Enhanced in-memory cache with LRU eviction
-const cache = new Map();
-const CACHE_TTL = aiConfig.cacheTTL * 1000; // Convert to milliseconds
-const DEFAULT_CACHE_SIZE_LIMIT = 1000; // Maximum number of cache entries
+// In-memory fallback cache (used when Redis is unavailable)
+const memCache = new Map();
+const CACHE_TTL = aiConfig.cacheTTL * 1000;
+const DEFAULT_CACHE_SIZE_LIMIT = 1000;
 let cacheSizeLimit = DEFAULT_CACHE_SIZE_LIMIT;
 
-// Cache statistics
-const cacheStats = {
-  hits: 0,
-  misses: 0,
-  evictions: 0,
-  sets: 0,
-};
+const cacheStats = { hits: 0, misses: 0, evictions: 0, sets: 0 };
 
-/**
- * Generate cache key from input
- */
 const generateCacheKey = (prefix, data) => {
   const dataString = JSON.stringify(data);
   return `${prefix}:${Buffer.from(dataString).toString('base64').substring(0, 50)}`;
 };
 
-/**
- * Get cached value (with LRU tracking)
- */
-const getCached = (key) => {
-  if (!aiConfig.cacheEnabled) {
+// ── Unified cache layer (Redis-first, in-memory fallback) ───────────
+
+const getCached = async (key) => {
+  if (!aiConfig.cacheEnabled) { cacheStats.misses++; return null; }
+
+  // Try Redis first
+  if (isRedisConnected()) {
+    const val = await cacheGet(`ai:cache:${key}`);
+    if (val !== null) { cacheStats.hits++; return val; }
     cacheStats.misses++;
     return null;
   }
 
-  const cached = cache.get(key);
-  if (!cached) {
-    cacheStats.misses++;
-    return null;
-  }
-
-  // Check if expired
-  if (Date.now() - cached.timestamp > CACHE_TTL) {
-    cache.delete(key);
-    cacheStats.misses++;
-    return null;
-  }
-
-  // Update access time for LRU
+  // In-memory fallback
+  const cached = memCache.get(key);
+  if (!cached) { cacheStats.misses++; return null; }
+  if (Date.now() - cached.timestamp > CACHE_TTL) { memCache.delete(key); cacheStats.misses++; return null; }
   cached.lastAccessed = Date.now();
   cacheStats.hits++;
   return cached.value;
 };
 
-/**
- * Set cached value (with LRU eviction)
- */
-const setCached = (key, value) => {
-  if (!aiConfig.cacheEnabled) {
+const setCached = async (key, value) => {
+  if (!aiConfig.cacheEnabled) return;
+
+  if (isRedisConnected()) {
+    await cacheSet(`ai:cache:${key}`, value, aiConfig.cacheTTL);
+    cacheStats.sets++;
     return;
   }
 
-  // Evict oldest entries if cache is full
-  if (cache.size >= cacheSizeLimit && !cache.has(key)) {
-    evictLRU();
-  }
-
-  cache.set(key, {
-    value,
-    timestamp: Date.now(),
-    lastAccessed: Date.now(),
-  });
+  // In-memory fallback
+  if (memCache.size >= cacheSizeLimit && !memCache.has(key)) evictLRU();
+  memCache.set(key, { value, timestamp: Date.now(), lastAccessed: Date.now() });
   cacheStats.sets++;
 };
 
-/**
- * Evict least recently used entry
- */
 const evictLRU = () => {
-  if (cache.size === 0) return;
-
-  let oldestKey = null;
-  let oldestTime = Date.now();
-
-  for (const [key, entry] of cache.entries()) {
-    if (entry.lastAccessed < oldestTime) {
-      oldestTime = entry.lastAccessed;
-      oldestKey = key;
-    }
+  if (memCache.size === 0) return;
+  let oldestKey = null, oldestTime = Date.now();
+  for (const [key, entry] of memCache.entries()) {
+    if (entry.lastAccessed < oldestTime) { oldestTime = entry.lastAccessed; oldestKey = key; }
   }
-
-  if (oldestKey) {
-    cache.delete(oldestKey);
-    cacheStats.evictions++;
-  }
+  if (oldestKey) { memCache.delete(oldestKey); cacheStats.evictions++; }
 };
 
-/**
- * Clear cache by prefix
- */
-const clearCacheByPrefix = (prefix) => {
+const clearCacheByPrefix = async (prefix) => {
+  if (isRedisConnected()) {
+    await cacheClear(`ai:cache:${prefix}:*`);
+    return;
+  }
   let cleared = 0;
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix + ':')) {
-      cache.delete(key);
-      cleared++;
-    }
+  for (const key of memCache.keys()) {
+    if (key.startsWith(prefix + ':')) { memCache.delete(key); cleared++; }
   }
   return cleared;
 };
@@ -131,7 +97,7 @@ const getCacheStatistics = () => {
   const hitRate = total > 0 ? (cacheStats.hits / total) * 100 : 0;
 
   return {
-    size: cache.size,
+    size: memCache.size,
     maxSize: cacheSizeLimit,
     hitRate: parseFloat(hitRate.toFixed(2)),
     hits: cacheStats.hits,
@@ -150,7 +116,7 @@ const setCacheSizeLimit = (limit) => {
   cacheSizeLimit = Math.max(100, limit); // Minimum 100 entries
   
   // Evict if current size exceeds new limit
-  while (cache.size > cacheSizeLimit) {
+  while (memCache.size > cacheSizeLimit) {
     evictLRU();
   }
 };
@@ -232,7 +198,7 @@ class AIService {
           freelancerId: freelancer._id?.toString(),
           baseScore,
         });
-        const cached = getCached(cacheKey);
+        const cached = await getCached(cacheKey);
         if (cached) {
 
           return cached;
@@ -293,7 +259,7 @@ class AIService {
         };
 
         // Cache result
-        setCached(cacheKey, result);
+        await setCached(cacheKey, result);
 
         return result;
       } catch (error) {
@@ -500,7 +466,7 @@ class AIService {
           freelancerId: freelancer._id?.toString(),
           jobId: job._id?.toString(),
         });
-        const cached = getCached(cacheKey);
+        const cached = await getCached(cacheKey);
         if (cached) {
           results.push({ job, ...cached });
           continue;
@@ -546,7 +512,7 @@ class AIService {
         }, () => fallback(job));
 
         // Cache result
-        setCached(cacheKey, recommendation);
+        await setCached(cacheKey, recommendation);
 
         results.push({ job, ...recommendation });
       } catch (error) {
@@ -609,7 +575,7 @@ class AIService {
           jobId: job._id?.toString(),
           freelancerId: freelancer._id?.toString(),
         });
-        const cached = getCached(cacheKey);
+        const cached = await getCached(cacheKey);
         if (cached) {
           results.push({ freelancer, ...cached });
           continue;
@@ -655,7 +621,7 @@ class AIService {
         }, () => fallback(freelancer));
 
         // Cache result
-        setCached(cacheKey, recommendation);
+        await setCached(cacheKey, recommendation);
 
         results.push({ freelancer, ...recommendation });
       } catch (error) {
@@ -707,7 +673,7 @@ class AIService {
       jobId: job._id?.toString(),
       proposalIds: proposalsWithData.map(p => p.proposal._id?.toString() || p.proposal.id).join(','),
     });
-    const cached = getCached(cacheKey);
+    const cached = await getCached(cacheKey);
     if (cached) {
       // Merge cached results with original data
       return proposalsWithData.map((item, index) => ({
@@ -800,7 +766,7 @@ class AIService {
       const sortedResults = results.sort((a, b) => b.aiScore - a.aiScore);
 
       // Cache result
-      setCached(cacheKey, sortedResults.map(r => ({
+      await setCached(cacheKey, sortedResults.map(r => ({
         aiScore: r.aiScore,
         confidence: r.confidence,
         reasoning: r.reasoning,
@@ -840,8 +806,8 @@ class AIService {
    * @param {string} prefix - Cache prefix to clear
    * @returns {number} Number of entries cleared
    */
-  clearCache(prefix) {
-    return clearCacheByPrefix(prefix);
+  async clearCache(prefix) {
+    return await clearCacheByPrefix(prefix);
   }
 
   /**

@@ -1,5 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { redisPub, redisSub, isRedisConnected } from '../config/redis.js';
 import User from '../models/User.js';
 
 let io;
@@ -12,6 +14,12 @@ export const initializeSocketServer = (httpServer) => {
       credentials: true,
     },
   });
+
+  // Use Redis adapter for multi-process / multi-server support
+  if (isRedisConnected()) {
+    io.adapter(createAdapter(redisPub, redisSub));
+    console.log('[Socket] Redis adapter attached');
+  }
 
   // Authentication middleware
   io.use(async (socket, next) => {

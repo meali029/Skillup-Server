@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import { getEmailQueue, addJob } from '../../config/queues.js';
+import { isRedisConnected } from '../../config/redis.js';
 
 // Create reusable transporter
 // - `EMAIL_DEBUG=true` enables nodemailer debug output (only enable temporarily)
@@ -43,8 +45,8 @@ export const generateEmailVerificationToken = () => {
   return crypto.randomBytes(32).toString('hex');
 };
 
-// Send email verification email
-export const sendEmailVerification = async (email, name, verificationToken) => {
+// Send email verification email (direct SMTP — used by worker)
+export const directSendEmailVerification = async (email, name, verificationToken) => {
   try {
     const transporter = createTransporter();
     // CRITICAL: Use backend API URL for verification - the backend handles verification and redirects to frontend
@@ -159,12 +161,12 @@ export const resendEmailVerification = async (email, name, verificationToken) =>
     text: `Please verify`,
   };
 
-  // Delegate to unified verification sender (handles SendGrid or SMTP)
+  // Delegate to unified verification sender (handles enqueue or direct)
   return sendEmailVerification(email, name, verificationToken);
 };
 
-// Send OTP email
-export const sendOTPEmail = async (email, otp, name) => {
+// Send OTP email (direct SMTP — used by worker)
+export const directSendOTPEmail = async (email, otp, name) => {
   try {
     const transporter = createTransporter();
     
@@ -275,8 +277,8 @@ export const sendOTPEmail = async (email, otp, name) => {
   }
 };
 
-// Send password reset confirmation email
-export const sendPasswordResetConfirmation = async (email, name) => {
+// Send password reset confirmation email (direct SMTP — used by worker)
+export const directSendPasswordResetConfirmation = async (email, name) => {
   try {
     const transporter = createTransporter();
     
@@ -392,6 +394,32 @@ export const sendPasswordResetConfirmation = async (email, name) => {
     });
     throw new Error('Failed to send confirmation email');
   }
+};
+
+// ── Public API: enqueue via BullMQ (falls back to direct SMTP) ──────
+
+export const sendEmailVerification = async (email, name, verificationToken) => {
+  if (isRedisConnected()) {
+    const job = await addJob(getEmailQueue(), 'send-verification', { type: 'send-verification', email, name, token: verificationToken }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+    if (job) return { success: true, queued: true, jobId: job.id };
+  }
+  return directSendEmailVerification(email, name, verificationToken);
+};
+
+export const sendOTPEmail = async (email, otp, name) => {
+  if (isRedisConnected()) {
+    const job = await addJob(getEmailQueue(), 'send-otp', { type: 'send-otp', email, otp, name }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+    if (job) return { success: true, queued: true, jobId: job.id };
+  }
+  return directSendOTPEmail(email, otp, name);
+};
+
+export const sendPasswordResetConfirmation = async (email, name) => {
+  if (isRedisConnected()) {
+    const job = await addJob(getEmailQueue(), 'send-password-reset', { type: 'send-password-reset', email, name }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+    if (job) return { success: true, queued: true, jobId: job.id };
+  }
+  return directSendPasswordResetConfirmation(email, name);
 };
 
 // Verify email configuration

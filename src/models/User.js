@@ -157,7 +157,8 @@ const userSchema = new mongoose.Schema({
   },
   
   createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  updatedAt: { type: Date, default: Date.now },
+  lastLogin: { type: Date },
 });
 
 // Indexes for efficient querying
@@ -167,6 +168,8 @@ userSchema.index({ 'cnic.ocrData.extractedCnicNumber': 1 }, { sparse: true }); /
 userSchema.index({ 'cnic.status': 1 }); // CNIC status index for admin filtering
 userSchema.index({ role: 1, isActive: 1 }); // Role and active status
 userSchema.index({ createdAt: -1 }); // Recent users
+userSchema.index({ lastLogin: 1 }); // Analytics active user counts
+userSchema.index({ isBanned: 1 }); // Admin ban filtering
 
 // Virtual field for CNIC verification status (for easier access)
 userSchema.virtual('cnicVerificationStatus').get(function() {

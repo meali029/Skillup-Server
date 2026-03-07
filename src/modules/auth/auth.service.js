@@ -221,6 +221,9 @@ export const loginLocal = async ({ email, password }) => {
   delete userWithoutPassword.password;
   
   const token = TokenService.generateToken(user);
+
+  // Update lastLogin asynchronously (fire-and-forget)
+  User.findByIdAndUpdate(user._id, { lastLogin: new Date() }).catch(() => {});
   
   return { user: userWithoutPassword, token };
 };

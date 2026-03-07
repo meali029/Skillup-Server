@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import MongoStore from "connect-mongo";
+import { RedisStore } from "connect-redis";
+import redisClient, { isRedisConnected } from "./config/redis.js";
 const baseDir = process.cwd();
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./config/swagger.js";
@@ -129,26 +131,38 @@ const sessionOptions = {
 
 // Avoid connecting to MongoDB for session store when running tests
 if (process.env.NODE_ENV !== 'test') {
-  const mongoUri = process.env.MONGO_URI;
-  
-  if (mongoUri) {
+  // Prefer Redis session store, fall back to MongoDB
+  if (isRedisConnected()) {
     try {
-      // IMPORTANT: Do NOT use crypto - it causes 'Cannot read properties of null (reading length)' 
-      // errors when sessions are read/written. Session encryption is not needed for this app.
-      const mongoStoreConfig = {
-        mongoUrl: mongoUri,
-        touchAfter: 24 * 3600, // lazy session update (only update if 24h passed)
-        collectionName: 'sessions',
-      };
-      
-      sessionOptions.store = MongoStore.create(mongoStoreConfig);
-      console.info('[Session] MongoDB session store initialized successfully (no crypto)');
+      sessionOptions.store = new RedisStore({
+        client: redisClient,
+        prefix: 'sess:',
+        ttl: 60 * 60 * 24 * 7, // 7 days (matches cookie maxAge)
+      });
+      console.info('[Session] Redis session store initialized');
     } catch (err) {
-      console.error('[Session] Failed to initialize Mongo session store:', err.message);
-      console.warn('[Session] Falling back to in-memory session store.');
+      console.error('[Session] Failed to initialize Redis session store:', err.message);
     }
-  } else {
-    console.error('[Session] MONGO_URI is not set — using in-memory session store.');
+  }
+
+  // Fall back to MongoDB if Redis store wasn't set
+  if (!sessionOptions.store) {
+    const mongoUri = process.env.MONGO_URI;
+    if (mongoUri) {
+      try {
+        sessionOptions.store = MongoStore.create({
+          mongoUrl: mongoUri,
+          touchAfter: 24 * 3600,
+          collectionName: 'sessions',
+        });
+        console.info('[Session] MongoDB session store initialized (Redis unavailable)');
+      } catch (err) {
+        console.error('[Session] Failed to initialize Mongo session store:', err.message);
+        console.warn('[Session] Falling back to in-memory session store.');
+      }
+    } else {
+      console.error('[Session] MONGO_URI is not set — using in-memory session store.');
+    }
   }
 }
 

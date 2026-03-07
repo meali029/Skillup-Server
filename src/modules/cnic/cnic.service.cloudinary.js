@@ -10,6 +10,8 @@ import {
 import cnicOCRService, { CONFIDENCE_THRESHOLD } from '../../services/cnic-ocr.service.js';
 import sharp from 'sharp';
 import { notifyAdmins, notifyUser } from '../notifications/notification.service.js';
+import { getOcrQueue, addJob } from '../../config/queues.js';
+import { isRedisConnected } from '../../config/redis.js';
 
 /**
  * CNIC Service with Cloudinary Storage and Production-Grade OCR
@@ -262,10 +264,26 @@ export const submitCNIC = async (userId, files) => {
     console.error('[Notification] Failed to notify admins:', notifyError.message);
   }
 
+  // Enqueue async OCR processing via BullMQ (if Redis available)
+  let ocrJobId = null;
+  if (isRedisConnected()) {
+    try {
+      const job = await addJob(getOcrQueue(), 'extract-cnic', {
+        userId: user._id.toString(),
+        frontImageUrl: frontUploadResult.secureUrl,
+        backImageUrl: backUploadResult.secureUrl,
+      });
+      if (job) ocrJobId = job.id;
+    } catch (ocrQueueError) {
+      console.error('[OCR Queue] Failed to enqueue OCR job:', ocrQueueError.message);
+    }
+  }
+
   return {
     message: 'CNIC submitted successfully and is pending admin review. OCR extraction will be performed by admin.',
     cnicStatus: user.cnic.status,
     ocrData: null, // OCR will be run by admin on-demand
+    ...(ocrJobId ? { ocrJobId } : {}),
   };
 };
 

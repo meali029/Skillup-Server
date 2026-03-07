@@ -12,6 +12,11 @@ const connectDB = async () => {
       // Short server selection timeout to fail fast in CI/containers
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      // Connection pool tuning for concurrent load
+      maxPoolSize: 50,
+      minPoolSize: 10,
+      maxIdleTimeMS: 30000,
+      compressors: ['zstd', 'snappy'],
     });
     console.log(`MongoDB Connected: ${conn.connection.host}`);
   } catch (err) {
