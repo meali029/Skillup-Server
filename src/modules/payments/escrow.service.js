@@ -295,7 +295,14 @@ class EscrowService {
    * @returns {Promise<Array>} Array of escrows
    */
   async getEscrowByContract(contractId) {
-    return Escrow.getByContract(contractId);
+    // When admins view escrows by contract we still want to see user names, so
+    // populate the same fields as getAllEscrows. this mirrors the query but without
+    // pagination.
+    return Escrow.find({ contractId })
+      .populate('client', 'name email')
+      .populate('freelancer', 'name email')
+      .populate('contract', 'title')
+      .sort({ createdAt: -1 });
   }
 
   /**
@@ -315,8 +322,8 @@ class EscrowService {
    */
   async getEscrowById(escrowId) {
     const escrow = await Escrow.findById(escrowId)
-      .populate('client', 'firstName lastName email')
-      .populate('freelancer', 'firstName lastName email')
+      .populate('client', 'name email')
+      .populate('freelancer', 'name email')
       .populate('contract', 'title status');
     if (!escrow) {
       throw createAppError('Escrow not found', 404);
@@ -514,8 +521,11 @@ class EscrowService {
 
     const [escrows, total] = await Promise.all([
       Escrow.find(query)
-        .populate('client', 'firstName lastName email')
-        .populate('freelancer', 'firstName lastName email')
+        // previous code populated firstName/lastName but User model now uses a single
+        // `name` field. include both name and email so clients show properly in the
+        // admin UI. keeping email for debugging/links if needed.
+        .populate('client', 'name email')
+        .populate('freelancer', 'name email')
         .populate('contract', 'title')
         .sort({ createdAt: -1 })
         .skip(skip)

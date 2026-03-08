@@ -15,6 +15,14 @@ class PaymentModeService {
   }
 
   /**
+   * Alias matching older API naming used by controllers
+   * @returns {Promise<string>} 'testing' or 'production'
+   */
+  async getPaymentMode() {
+    return this.getMode();
+  }
+
+  /**
    * Check if system is in testing mode
    * @returns {Promise<boolean>} True if in testing mode
    */
@@ -39,6 +47,14 @@ class PaymentModeService {
   getModeSync() {
     const mode = getEnv('PAYMENT_MODE', 'testing');
     return mode === 'production' ? 'production' : 'testing';
+  }
+
+  /**
+   * Synchronous alias for getPaymentMode
+   * @returns {string} 'testing' or 'production'
+   */
+  getPaymentModeSync() {
+    return this.getModeSync();
   }
 
   /**
