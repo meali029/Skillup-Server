@@ -186,14 +186,16 @@ class PaymentService {
               gatewayTransactionId: verificationResult.gatewayTransactionId,
             });
 
-            // If this is for contract creation, update contract payment status
+            // If this is for contract creation, update contract payment status and activate
             if (escrow.contractId && escrow.milestoneId === 'TOTAL') {
               const contract = await Contract.findById(escrow.contractId);
               if (contract) {
                 contract.paymentStatus = 'COMPLETED';
+                // Activate the contract now that escrow is funded
+                if (contract.status === 'pending') {
+                  contract.status = 'active';
+                }
                 await contract.save();
-                
-                // TODO: Send notification to freelancer that contract is ready for acceptance
               }
             }
           }

@@ -59,10 +59,10 @@ export const createFromProposal = {
       )
       .optional(),
     paymentData: Joi.object({
-      paymentMethod: Joi.string().required().valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET')
+      paymentMethod: Joi.string().required().valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SAFEPAY')
         .messages({
           'any.required': 'Payment method is required',
-          'any.only': 'Payment method must be JAZZCASH, EASYPAISA, BANK_TRANSFER, or WALLET',
+          'any.only': 'Payment method must be JAZZCASH, EASYPAISA, BANK_TRANSFER, WALLET, or SAFEPAY',
         }),
       customerData: Joi.object({
         email: Joi.string().optional().email().allow('', null),
@@ -281,10 +281,10 @@ export const fundMilestoneEscrow = {
   }),
   body: Joi.object({
     paymentMethod: Joi.string()
-      .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET')
+      .valid('JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SAFEPAY')
       .required()
       .messages({
-        'any.only': 'Invalid payment method',
+        'any.only': 'Payment method must be JAZZCASH, EASYPAISA, BANK_TRANSFER, WALLET, or SAFEPAY',
         'any.required': 'Payment method is required',
       }),
     customerData: Joi.object({

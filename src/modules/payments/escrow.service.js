@@ -114,13 +114,23 @@ class EscrowService {
   async fundEscrow(escrowId, paymentData = {}) {
     const { transactionId, paymentMethod = 'WALLET', gatewayTransactionId } = paymentData;
 
-    const escrow = await Escrow.findById(escrowId);
+    // Atomic status transition: only one caller can move CREATED → FUNDED
+    const escrow = await Escrow.findOneAndUpdate(
+      { _id: escrowId, status: ESCROW_STATUS.CREATED },
+      { $set: { status: 'FUNDED' } },
+      { new: true }
+    );
     if (!escrow) {
-      throw createAppError('Escrow not found', 404);
-    }
-
-    if (escrow.status !== ESCROW_STATUS.CREATED) {
-      throw createAppError(`Cannot fund escrow in ${escrow.status} status`, 400);
+      // Either not found or already funded — check which
+      const existing = await Escrow.findById(escrowId);
+      if (!existing) {
+        throw createAppError('Escrow not found', 404);
+      }
+      if (['FUNDED', 'LOCKED'].includes(existing.status)) {
+        // Already funded/locked — idempotent success
+        return existing;
+      }
+      throw createAppError(`Cannot fund escrow in ${existing.status} status`, 400);
     }
 
     // Check if escrow has expired
@@ -137,9 +147,13 @@ class EscrowService {
       escrowId
     );
 
-    // Update escrow status
+    // Update escrow details and lock
     escrow.gatewayTransactionId = gatewayTransactionId;
-    await escrow.fund(transaction._id, paymentMethod);
+    escrow.fundedAt = new Date();
+    escrow.fundTransactionId = transaction._id;
+    escrow.paymentMethod = paymentMethod;
+    escrow.expiresAt = null;
+    await escrow.save();
 
     // Lock the escrow (marks work can begin)
     await escrow.lock();

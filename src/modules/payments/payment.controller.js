@@ -4,6 +4,8 @@ import withdrawalService from './withdrawal.service.js';
 import escrowService from './escrow.service.js';
 import paymentModeService from '../../services/paymentGateways/paymentMode.service.js';
 import Transaction from '../../models/Transaction.js';
+import Escrow from '../../models/Escrow.js';
+import Contract from '../../models/Contract.js';
 import { asyncHandler } from '../../core/utils/index.js';
 import { createAppError } from '../../core/errors/index.js';
 
@@ -11,6 +13,60 @@ import { createAppError } from '../../core/errors/index.js';
  * Payment Controller
  * Handles HTTP requests for payment operations
  */
+
+/**
+ * Auto-fund escrow and activate contract when a Safepay transaction completes.
+ * Uses the atomic fundEscrow in escrowService to prevent double-funding.
+ */
+async function autoFundEscrowAndActivateContract(transaction, logPrefix = 'Payment') {
+  if (!transaction.escrowId) return;
+  try {
+    const escrow = await Escrow.findById(transaction.escrowId);
+    if (!escrow) return;
+
+    if (escrow.status === 'CREATED') {
+      await escrowService.fundEscrow(transaction.escrowId.toString(), {
+        transactionId: transaction._id.toString(),
+        paymentMethod: transaction.paymentMethod,
+        gatewayTransactionId: transaction.gatewayTransactionId,
+      });
+    }
+
+    // Activate contract atomically if this is the initial contract escrow
+    if (escrow.contractId && escrow.milestoneId === 'TOTAL') {
+      const activated = await Contract.findOneAndUpdate(
+        { _id: escrow.contractId, status: 'pending' },
+        { $set: { paymentStatus: 'COMPLETED', status: 'active' } },
+        { new: true }
+      );
+      if (activated) {
+        console.log(`${logPrefix}: contract`, escrow.contractId, 'activated');
+      } else {
+        // Contract may already be active or in another state — update paymentStatus only
+        await Contract.updateOne(
+          { _id: escrow.contractId, paymentStatus: { $ne: 'COMPLETED' } },
+          { $set: { paymentStatus: 'COMPLETED' } }
+        );
+      }
+    }
+  } catch (escrowErr) {
+    console.error(`${logPrefix}: escrow fund error for txn`, transaction._id, escrowErr.message);
+    // Revert transaction status and reverse wallet credit to avoid inconsistent state
+    try {
+      await Transaction.updateOne(
+        { _id: transaction._id, status: 'SUCCESS' },
+        { $set: { status: 'FAILED', failureReason: `Escrow funding failed: ${escrowErr.message}` } }
+      );
+      await walletService.debitWallet(transaction.userId, transaction.amount, {
+        description: `Reversal: escrow fund failed for txn ${transaction._id}`,
+        type: 'REVERSAL',
+      });
+      console.error(`${logPrefix}: reverted txn ${transaction._id} and debited wallet for user ${transaction.userId}`);
+    } catch (revertErr) {
+      console.error(`${logPrefix}: CRITICAL — failed to revert txn ${transaction._id}:`, revertErr.message);
+    }
+  }
+}
 
 // Initialize deposit
 export const initializeDeposit = asyncHandler(async (req, res) => {
@@ -346,6 +402,9 @@ export const verifySafepayPending = asyncHandler(async (req, res) => {
           await walletService.creditWallet(txn.userId, txn.amount, updated.gatewayTransactionId);
           verified++;
           console.log('Safepay auto-verify: credited', txn.amount, 'to user', txn.userId);
+
+          // Auto-fund escrow if this deposit is linked to one (e.g. contract creation)
+          await autoFundEscrowAndActivateContract(updated, 'Safepay auto-verify');
         }
       }
     } catch (err) {
@@ -457,6 +516,9 @@ export const handleSafepayWebhook = asyncHandler(async (req, res) => {
       if (updated) {
         await walletService.creditWallet(updated.userId, updated.amount, updated.gatewayTransactionId);
         console.log('Safepay webhook: Payment credited', { amount: updated.amount, userId: updated.userId });
+
+        // Auto-fund escrow if this deposit is linked to one
+        await autoFundEscrowAndActivateContract(updated, 'Safepay webhook');
       } else {
         console.log('Safepay webhook: Transaction already processed', transaction._id);
       }
@@ -535,6 +597,10 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
           updated.amount,
           updated.gatewayTransactionId
         );
+
+        // Auto-fund escrow if this deposit is linked to one
+        await autoFundEscrowAndActivateContract(updated, 'Safepay callback');
+
         return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${updated._id}`);
       } else {
         // Already processed by webhook
