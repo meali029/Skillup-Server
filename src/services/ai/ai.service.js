@@ -353,12 +353,14 @@ class AIService {
     } catch (error) {
       console.error('[AI Service] Error generating proposal draft:', {
         error: error.message,
-        stack: error.stack,
+        statusCode: error.statusCode,
         jobId: job._id?.toString(),
         freelancerId: freelancer._id?.toString(),
         timestamp: new Date().toISOString(),
       });
-      throw AIProviderError(`Failed to generate proposal draft: ${error.message}`);
+      // Re-throw clean AppErrors (rate limit, timeout, config) as-is
+      if (error.statusCode) throw error;
+      throw AIProviderError('Failed to generate proposal draft. Please try again later.', 500);
     }
   }
 

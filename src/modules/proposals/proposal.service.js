@@ -736,11 +736,17 @@ export const generateProposalDraft = async (jobId, userId) => {
       },
     };
   } catch (error) {
-    // If AI generation fails, throw user-friendly error
+    // Map known AI error codes to clean user-facing messages
+    if (error.statusCode === 429) {
+      throw createAppError(
+        'AI generation limit reached. The service is temporarily at capacity — please wait a moment and try again.',
+        429
+      );
+    }
     if (error.statusCode) {
       throw error;
     }
-    throw createAppError('Failed to generate proposal draft', 500);
+    throw createAppError('Failed to generate proposal draft. Please try again later.', 500);
   }
 };
 
