@@ -34,6 +34,8 @@ const transactionSchema = new mongoose.Schema(
         'FEE',
         'ADJUSTMENT', // Admin adjustments
         'BONUS', // Platform bonuses
+        'SUBSCRIPTION',
+        'SUBSCRIPTION_RENEWAL',
       ],
       required: true,
       index: true,

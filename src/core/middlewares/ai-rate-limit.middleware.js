@@ -1,10 +1,13 @@
 /**
  * AI Rate Limiting Middleware
  * Enforces per-user and global rate limits on AI feature routes
+ * Also tracks usage in Subscription (paid) or User (free) models
  */
 
 import rateLimiterService from '../../services/ai/rate-limiter.service.js';
 import { AIRateLimitError } from '../errors/ai.errors.js';
+import Subscription from '../../models/Subscription.js';
+import User from '../../models/User.js';
 
 /**
  * Map feature names from route context
@@ -47,7 +50,7 @@ export const aiRateLimit = (feature, options = {}) => {
       }
 
       // Check global rate limit first
-      const globalCheck = rateLimiterService.checkGlobalLimit();
+      const globalCheck = await rateLimiterService.checkGlobalLimit();
       if (!globalCheck.allowed) {
         const retryAfter = Math.ceil((globalCheck.resetAt.getTime() - Date.now()) / 1000);
         
@@ -67,7 +70,7 @@ export const aiRateLimit = (feature, options = {}) => {
       }
 
       // Check per-user rate limit
-      const userCheck = rateLimiterService.checkUserLimit(userId, featureName);
+      const userCheck = await rateLimiterService.checkUserLimit(userId, featureName);
       if (!userCheck.allowed) {
         const retryAfter = Math.ceil((userCheck.resetAt.getTime() - Date.now()) / 1000);
         
@@ -108,12 +111,38 @@ export const aiRateLimit = (feature, options = {}) => {
         rateLimiterService.incrementGlobalCount();
       };
 
+      // Track plan-based usage in DB (Subscription for paid, User for free)
+      const incrementPlanUsage = async () => {
+        try {
+          const source = req._aiUsageSource;
+          if (source === 'subscription') {
+            await Subscription.incrementUsage(userId, 'aiRequestsUsed');
+          } else if (source === 'user') {
+            // Free tier: increment counter, start window if expired/missing
+            const FREE_AI_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+            const user = await User.findById(userId).select('aiRequestsResetAt');
+            const windowExpired = !user?.aiRequestsResetAt ||
+              (Date.now() - new Date(user.aiRequestsResetAt).getTime()) > FREE_AI_WINDOW_MS;
+
+            const update = { $inc: { aiRequestsUsed: 1 } };
+            if (windowExpired) {
+              update.$set = { aiRequestsUsed: 1, aiRequestsResetAt: new Date() };
+              delete update.$inc;
+            }
+            await User.findByIdAndUpdate(userId, update);
+          }
+        } catch (err) {
+          console.error('[AI Rate Limit] Failed to track plan usage:', err.message);
+        }
+      };
+
       // Intercept response to increment on success
       const originalJson = res.json.bind(res);
       res.json = function(data) {
         // Only increment on successful responses (2xx status codes)
         if (res.statusCode >= 200 && res.statusCode < 300) {
           incrementRateLimit();
+          incrementPlanUsage();
         }
         return originalJson(data);
       };

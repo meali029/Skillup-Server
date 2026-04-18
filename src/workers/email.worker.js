@@ -3,6 +3,7 @@ import {
   directSendEmailVerification,
   directSendOTPEmail,
   directSendPasswordResetConfirmation,
+  directSendSubscriptionEmail,
 } from '../core/utils/emailService.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -27,6 +28,11 @@ const emailWorker = new Worker(
       case 'send-password-reset': {
         const { email, name } = job.data;
         await directSendPasswordResetConfirmation(email, name);
+        break;
+      }
+      case 'send-subscription-email': {
+        const { email, ...data } = job.data;
+        await directSendSubscriptionEmail(email, data);
         break;
       }
       default:

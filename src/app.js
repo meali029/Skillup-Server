@@ -56,6 +56,8 @@ import paymentRoutes from "./modules/payments/payment.routes.js";
 import reviewRoutes from "./modules/reviews/review.routes.js";
 import paymentManagementRoutes from "./modules/admin/payments/payment-management.routes.js";
 import uploadRoutes from "./modules/uploads/upload.routes.js";
+import subscriptionRoutes from "./modules/subscriptions/subscription.routes.js";
+import { adminRouter as adminSubscriptionRoutes } from "./modules/subscriptions/subscription.routes.js";
 import { errorHandler, createAppError } from "./core/errors/index.js";
 import { AppError } from "./core/errors/index.js";
 import { authenticate, authorizeAdmin } from "./core/middlewares/index.js";
@@ -336,6 +338,7 @@ app.use("/api/disputes", disputeRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
 // Global admin protection - all /api/admin/* routes require admin role AND adminRole
 app.use("/api/admin/*", authenticate, authorizeAdmin);
@@ -349,6 +352,7 @@ app.use("/api/admin/settings", adminSettingsRoutes);
 app.use("/api/admin/health", healthRoutes);
 app.use("/api/admin/env-vars", envVarsRoutes);
 app.use("/api/admin/payments", paymentManagementRoutes);
+app.use("/api/admin/subscriptions", adminSubscriptionRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 

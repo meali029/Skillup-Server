@@ -63,7 +63,8 @@ const authenticate = asyncHandler(async (req, res, next) => {
       role: user.role,
       adminRole: user.adminRole,
       name: user.name,
-      isProfileComplete: user.isProfileComplete
+      isProfileComplete: user.isProfileComplete,
+      plan: user.plan || 'free',
     };
 
     next();

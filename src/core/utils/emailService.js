@@ -396,6 +396,218 @@ export const directSendPasswordResetConfirmation = async (email, name) => {
   }
 };
 
+// ── Subscription Email Templates ────────────────────────────────────
+const subscriptionEmailStyles = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #2F3E46; background-color: #f5f5f5; }
+  .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+  .header { padding: 40px 30px; text-align: center; }
+  .header h1 { color: #ffffff; font-size: 24px; font-weight: 600; margin: 0; }
+  .header p { color: #CAD2C5; font-size: 14px; margin-top: 8px; }
+  .content { padding: 40px 30px; background: #ffffff; }
+  .greeting { font-size: 16px; color: #2F3E46; margin-bottom: 20px; }
+  .greeting strong { color: #52796F; }
+  .message { font-size: 15px; color: #354F52; margin-bottom: 20px; line-height: 1.7; }
+  .info-box { background: #F8F9FA; border: 1px solid #CAD2C5; border-radius: 8px; padding: 20px; margin: 20px 0; }
+  .info-box table { width: 100%; border-collapse: collapse; }
+  .info-box td { padding: 8px 0; font-size: 14px; color: #354F52; }
+  .info-box td:first-child { font-weight: 600; color: #52796F; width: 40%; }
+  .button-container { text-align: center; margin: 30px 0; }
+  .action-button { display: inline-block; background: linear-gradient(135deg, #84A98C 0%, #52796F 100%); color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; }
+  .warning-box { background: #FFF9E6; border-left: 4px solid #E6A817; padding: 20px; margin: 20px 0; border-radius: 6px; }
+  .warning-box strong { color: #52796F; display: block; margin-bottom: 8px; }
+  .warning-box p { color: #354F52; font-size: 14px; }
+  .success-box { background: #E8F5E9; border-left: 4px solid #84A98C; padding: 20px; margin: 20px 0; border-radius: 6px; }
+  .danger-box { background: #FFEBEE; border-left: 4px solid #E53935; padding: 20px; margin: 20px 0; border-radius: 6px; }
+  .danger-box strong { color: #C62828; display: block; margin-bottom: 8px; }
+  .danger-box p { color: #354F52; font-size: 14px; }
+  .footer { background: #2F3E46; padding: 30px; text-align: center; }
+  .footer p { color: #CAD2C5; font-size: 13px; margin: 5px 0; }
+  .footer a { color: #84A98C; text-decoration: none; }
+`;
+
+const subscriptionEmailFooter = `
+  <div class="footer">
+    <p><strong style="color: #84A98C;">SkillUp</strong></p>
+    <p>Pakistan's Smart Freelancing Platform</p>
+    <p>&copy; ${new Date().getFullYear()} SkillUp. All rights reserved.</p>
+  </div>
+`;
+
+const SUBSCRIPTION_EMAIL_BUILDERS = {
+  'renewal-success': ({ name, plan, amount, billingCycle, periodEnd }) => ({
+    subject: 'Subscription Renewed Successfully - SkillUp',
+    headerBg: 'linear-gradient(135deg, #84A98C 0%, #52796F 100%)',
+    headerTitle: '✅ Subscription Renewed',
+    headerSubtitle: 'Your plan has been renewed successfully',
+    body: `
+      <p class="greeting">Hi <strong>${name}</strong>,</p>
+      <div class="success-box">
+        <strong style="color: #2E7D32;">Your ${plan} plan has been renewed!</strong>
+      </div>
+      <div class="info-box">
+        <table>
+          <tr><td>Plan</td><td>${plan}</td></tr>
+          <tr><td>Amount Charged</td><td>PKR ${amount}</td></tr>
+          <tr><td>Billing Cycle</td><td>${billingCycle}</td></tr>
+          <tr><td>Next Renewal</td><td>${new Date(periodEnd).toLocaleDateString('en-PK', { dateStyle: 'long' })}</td></tr>
+        </table>
+      </div>
+      <p class="message">Your usage limits have been reset for the new billing period. Enjoy your ${plan} benefits!</p>
+    `,
+    buttonText: 'View Subscription',
+    buttonLink: '/wallet',
+  }),
+
+  'renewal-failed': ({ name, plan, amount, gracePeriodEnd }) => ({
+    subject: 'Subscription Renewal Failed - Action Required - SkillUp',
+    headerBg: 'linear-gradient(135deg, #E6A817 0%, #D4960A 100%)',
+    headerTitle: '⚠️ Renewal Failed',
+    headerSubtitle: 'Your subscription needs attention',
+    body: `
+      <p class="greeting">Hi <strong>${name}</strong>,</p>
+      <div class="warning-box">
+        <strong>Your ${plan} plan renewal could not be processed</strong>
+        <p>Your wallet balance is insufficient. PKR ${amount} is required to renew your subscription.</p>
+      </div>
+      <div class="info-box">
+        <table>
+          <tr><td>Plan</td><td>${plan}</td></tr>
+          <tr><td>Amount Required</td><td>PKR ${amount}</td></tr>
+          <tr><td>Grace Period Ends</td><td>${new Date(gracePeriodEnd).toLocaleDateString('en-PK', { dateStyle: 'long' })}</td></tr>
+        </table>
+      </div>
+      <p class="message">Please add funds to your wallet before the grace period ends to avoid losing your subscription benefits.</p>
+    `,
+    buttonText: 'Add Funds Now',
+    buttonLink: '/wallet',
+  }),
+
+  'subscription-expired': ({ name, plan }) => ({
+    subject: 'Subscription Expired - SkillUp',
+    headerBg: 'linear-gradient(135deg, #E53935 0%, #C62828 100%)',
+    headerTitle: '❌ Subscription Expired',
+    headerSubtitle: 'Your plan has been downgraded',
+    body: `
+      <p class="greeting">Hi <strong>${name}</strong>,</p>
+      <div class="danger-box">
+        <strong>Your ${plan} plan has expired</strong>
+        <p>You've been moved to the Free plan. Your premium features are no longer available.</p>
+      </div>
+      <p class="message">You can resubscribe at any time to regain access to premium features, higher limits, and lower commission rates.</p>
+    `,
+    buttonText: 'View Plans',
+    buttonLink: '/pricing',
+  }),
+
+  'subscription-activated': ({ name, plan, amount, billingCycle, periodEnd }) => ({
+    subject: `Welcome to ${plan} Plan - SkillUp`,
+    headerBg: 'linear-gradient(135deg, #84A98C 0%, #52796F 100%)',
+    headerTitle: '🎉 Subscription Activated',
+    headerSubtitle: `Welcome to the ${plan} plan`,
+    body: `
+      <p class="greeting">Hi <strong>${name}</strong>,</p>
+      <div class="success-box">
+        <strong style="color: #2E7D32;">Your ${plan} plan is now active!</strong>
+      </div>
+      <div class="info-box">
+        <table>
+          <tr><td>Plan</td><td>${plan}</td></tr>
+          <tr><td>Amount</td><td>PKR ${amount}</td></tr>
+          <tr><td>Billing Cycle</td><td>${billingCycle}</td></tr>
+          <tr><td>Valid Until</td><td>${new Date(periodEnd).toLocaleDateString('en-PK', { dateStyle: 'long' })}</td></tr>
+        </table>
+      </div>
+      <p class="message">You now have access to all ${plan} features including increased limits and lower commission rates. Start making the most of your subscription!</p>
+    `,
+    buttonText: 'Explore Features',
+    buttonLink: '/pricing',
+  }),
+
+  'usage-alert': ({ name, plan, resourceType, used, limit, percentage }) => ({
+    subject: `Usage Alert: ${percentage}% of ${resourceType} Used - SkillUp`,
+    headerBg: 'linear-gradient(135deg, #E6A817 0%, #D4960A 100%)',
+    headerTitle: '📊 Usage Alert',
+    headerSubtitle: `You're approaching your ${resourceType} limit`,
+    body: `
+      <p class="greeting">Hi <strong>${name}</strong>,</p>
+      <div class="warning-box">
+        <strong>You've used ${percentage}% of your ${resourceType} limit</strong>
+        <p>${used} of ${limit} ${resourceType} used on your ${plan} plan this billing period.</p>
+      </div>
+      <p class="message">Consider upgrading your plan for higher limits, or manage your usage carefully for the rest of this billing period.</p>
+    `,
+    buttonText: 'Upgrade Plan',
+    buttonLink: '/pricing',
+  }),
+
+  'grace-period-warning': ({ name, plan, daysLeft, amount }) => ({
+    subject: `${daysLeft} Day${daysLeft !== 1 ? 's' : ''} Left to Save Your Subscription - SkillUp`,
+    headerBg: 'linear-gradient(135deg, #E53935 0%, #C62828 100%)',
+    headerTitle: `⏰ ${daysLeft} Day${daysLeft !== 1 ? 's' : ''} Remaining`,
+    headerSubtitle: 'Add funds to keep your subscription',
+    body: `
+      <p class="greeting">Hi <strong>${name}</strong>,</p>
+      <div class="danger-box">
+        <strong>Your ${plan} subscription will expire in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}</strong>
+        <p>Add PKR ${amount} to your wallet to prevent losing your premium features.</p>
+      </div>
+      <p class="message">After the grace period ends, your account will be downgraded to the Free plan and you'll lose access to premium features.</p>
+    `,
+    buttonText: 'Add Funds Now',
+    buttonLink: '/wallet',
+  }),
+};
+
+/**
+ * Build and send a subscription email (direct SMTP — used by worker)
+ */
+export const directSendSubscriptionEmail = async (email, data) => {
+  const builder = SUBSCRIPTION_EMAIL_BUILDERS[data.emailType];
+  if (!builder) {
+    throw new Error(`Unknown subscription email type: ${data.emailType}`);
+  }
+
+  const { subject, headerBg, headerTitle, headerSubtitle, body, buttonText, buttonLink } = builder(data);
+  const frontendUrl = getFrontendUrl();
+
+  const transporter = createTransporter();
+  const mailOptions = {
+    from: `"SkillUp" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>${subscriptionEmailStyles}</style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header" style="background: ${headerBg};">
+            <h1>${headerTitle}</h1>
+            <p>${headerSubtitle}</p>
+          </div>
+          <div class="content">
+            ${body}
+            <div class="button-container">
+              <a href="${frontendUrl}${buttonLink}" class="action-button">${buttonText}</a>
+            </div>
+          </div>
+          ${subscriptionEmailFooter}
+        </div>
+      </body>
+      </html>
+    `,
+    text: `${headerTitle}\n\n${body.replace(/<[^>]*>/g, '').trim()}\n\n© ${new Date().getFullYear()} SkillUp`,
+  };
+
+  await transporter.sendMail(mailOptions);
+  return { success: true };
+};
+
 // ── Public API: enqueue via BullMQ (falls back to direct SMTP) ──────
 
 export const sendEmailVerification = async (email, name, verificationToken) => {
@@ -420,6 +632,24 @@ export const sendPasswordResetConfirmation = async (email, name) => {
     if (job) return { success: true, queued: true, jobId: job.id };
   }
   return directSendPasswordResetConfirmation(email, name);
+};
+
+/**
+ * Send a subscription-related email via BullMQ (falls back to direct SMTP)
+ * @param {string} email - recipient email
+ * @param {Object} data - must include { emailType, name, ... } see SUBSCRIPTION_EMAIL_BUILDERS
+ */
+export const sendSubscriptionEmail = async (email, data) => {
+  if (isRedisConnected()) {
+    const job = await addJob(
+      getEmailQueue(),
+      'send-subscription-email',
+      { type: 'send-subscription-email', email, ...data },
+      { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
+    );
+    if (job) return { success: true, queued: true, jobId: job.id };
+  }
+  return directSendSubscriptionEmail(email, data);
 };
 
 // Verify email configuration

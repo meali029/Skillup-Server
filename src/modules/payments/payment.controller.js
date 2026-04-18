@@ -3,6 +3,7 @@ import walletService from './wallet.service.js';
 import withdrawalService from './withdrawal.service.js';
 import escrowService from './escrow.service.js';
 import paymentModeService from '../../services/paymentGateways/paymentMode.service.js';
+import subscriptionService from '../subscriptions/subscription.service.js';
 import Transaction from '../../models/Transaction.js';
 import Escrow from '../../models/Escrow.js';
 import Contract from '../../models/Contract.js';
@@ -365,16 +366,16 @@ export const getMilestoneEscrow = asyncHandler(async (req, res) => {
   });
 });
 
-// Verify pending Safepay transactions for a user (called by frontend on wallet page load)
+// Verify pending Safepay transactions for a user (called by frontend on wallet/pricing page load)
 export const verifySafepayPending = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
-  // Find all pending SAFEPAY deposits for this user
+  // Find all pending SAFEPAY transactions (deposits + subscriptions) for this user
   const pendingTxns = await Transaction.find({
     userId,
     paymentMethod: 'SAFEPAY',
     status: 'PENDING',
-    type: 'DEPOSIT',
+    type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
   }).sort({ createdAt: -1 });
 
   if (pendingTxns.length === 0) {
@@ -399,12 +400,18 @@ export const verifySafepayPending = asyncHandler(async (req, res) => {
           { new: true }
         );
         if (updated) {
-          await walletService.creditWallet(txn.userId, txn.amount, updated.gatewayTransactionId);
-          verified++;
-          console.log('Safepay auto-verify: credited', txn.amount, 'to user', txn.userId);
+          if (updated.type === 'SUBSCRIPTION') {
+            // Activate subscription after verified Safepay payment
+            await subscriptionService.activateAfterPayment(updated._id);
+            console.log('Safepay auto-verify: subscription activated for user', txn.userId);
+          } else {
+            await walletService.creditWallet(txn.userId, txn.amount, updated.gatewayTransactionId);
+            console.log('Safepay auto-verify: credited', txn.amount, 'to user', txn.userId);
 
-          // Auto-fund escrow if this deposit is linked to one (e.g. contract creation)
-          await autoFundEscrowAndActivateContract(updated, 'Safepay auto-verify');
+            // Auto-fund escrow if this deposit is linked to one (e.g. contract creation)
+            await autoFundEscrowAndActivateContract(updated, 'Safepay auto-verify');
+          }
+          verified++;
         }
       }
     } catch (err) {
@@ -488,7 +495,7 @@ export const handleSafepayWebhook = asyncHandler(async (req, res) => {
     transaction = await Transaction.findOne({
       gatewayTransactionId: tracker,
       status: 'PENDING',
-      type: 'DEPOSIT',
+      type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
     });
   }
 
@@ -496,7 +503,7 @@ export const handleSafepayWebhook = asyncHandler(async (req, res) => {
     transaction = await Transaction.findOne({
       gatewayTransactionId: orderRef,
       status: 'PENDING',
-      type: 'DEPOSIT',
+      type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
     }).sort({ createdAt: -1 });
   }
 
@@ -514,11 +521,17 @@ export const handleSafepayWebhook = asyncHandler(async (req, res) => {
         { new: true }
       );
       if (updated) {
-        await walletService.creditWallet(updated.userId, updated.amount, updated.gatewayTransactionId);
-        console.log('Safepay webhook: Payment credited', { amount: updated.amount, userId: updated.userId });
+        if (updated.type === 'SUBSCRIPTION') {
+          // Activate subscription after Safepay payment
+          await subscriptionService.activateAfterPayment(updated._id);
+          console.log('Safepay webhook: Subscription activated', { userId: updated.userId });
+        } else {
+          await walletService.creditWallet(updated.userId, updated.amount, updated.gatewayTransactionId);
+          console.log('Safepay webhook: Payment credited', { amount: updated.amount, userId: updated.userId });
 
-        // Auto-fund escrow if this deposit is linked to one
-        await autoFundEscrowAndActivateContract(updated, 'Safepay webhook');
+          // Auto-fund escrow if this deposit is linked to one
+          await autoFundEscrowAndActivateContract(updated, 'Safepay webhook');
+        }
       } else {
         console.log('Safepay webhook: Transaction already processed', transaction._id);
       }
@@ -551,7 +564,7 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
     transaction = await Transaction.findOne({
       gatewayTransactionId: tracker,
       status: 'PENDING',
-      type: 'DEPOSIT',
+      type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
     });
   }
   
@@ -559,7 +572,7 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
     transaction = await Transaction.findOne({
       gatewayTransactionId: orderId,
       status: 'PENDING',
-      type: 'DEPOSIT',
+      type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
     }).sort({ createdAt: -1 });
   }
 
@@ -568,10 +581,11 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
     const searchId = tracker || orderId;
     const processed = await Transaction.findOne({
       gatewayTransactionId: searchId,
-      type: 'DEPOSIT',
+      type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
     });
     if (processed && processed.status === 'SUCCESS') {
-      return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${processed._id}`);
+      const redirectPath = processed.type === 'SUBSCRIPTION' ? '/pricing?payment=success' : `/wallet?payment=success&transactionId=${processed._id}`;
+      return res.redirect(`${clientUrl}${redirectPath}`);
     }
     return res.redirect(`${clientUrl}/wallet?payment=error&message=Transaction+not+found`);
   }
@@ -592,6 +606,12 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
       );
 
       if (updated) {
+        if (updated.type === 'SUBSCRIPTION') {
+          // Activate subscription after Safepay payment
+          await subscriptionService.activateAfterPayment(updated._id);
+          return res.redirect(`${clientUrl}/pricing?payment=success`);
+        }
+
         await walletService.creditWallet(
           updated.userId,
           updated.amount,
@@ -604,7 +624,8 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
         return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${updated._id}`);
       } else {
         // Already processed by webhook
-        return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${transaction._id}`);
+        const redirectPath = transaction.type === 'SUBSCRIPTION' ? '/pricing?payment=success' : `/wallet?payment=success&transactionId=${transaction._id}`;
+        return res.redirect(`${clientUrl}${redirectPath}`);
       }
     } else {
       return res.redirect(`${clientUrl}/wallet?payment=failed&message=${encodeURIComponent(verificationResult.responseMessage || 'Payment failed')}`);

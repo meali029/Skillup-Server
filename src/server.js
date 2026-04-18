@@ -19,6 +19,7 @@ import { initializeSocketServer } from "./sockets/index.js";
 import { initializeEnvLoader } from "./core/utils/envLoader.js";
 import { connectRedis, disconnectRedis } from "./config/redis.js";
 import { startWorkers, stopWorkers } from "./workers/index.js";
+import { initSubscriptionRenewalCron } from "./workers/subscriptionRenewal.worker.js";
 
 // ===== PRODUCTION STARTUP DIAGNOSTICS =====
 const logEnvStatus = () => {
@@ -84,6 +85,9 @@ connectDB()
 
     // Start BullMQ workers (email, OCR)
     await startWorkers();
+
+    // Start subscription renewal cron job
+    initSubscriptionRenewalCron();
 
     // Start the HTTP server AFTER database is connected
     httpServer.listen(PORT, HOST, () => {

@@ -155,6 +155,21 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Wallet',
   },
+
+  // Subscription / Plan
+  plan: {
+    type: String,
+    enum: ['free', 'lite', 'pro', 'business'],
+    default: 'free',
+  },
+  subscriptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Subscription',
+  },
+
+  // Free-tier AI usage tracking (7-day rolling window)
+  aiRequestsUsed: { type: Number, default: 0, min: 0 },
+  aiRequestsResetAt: { type: Date },
   
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -170,6 +185,7 @@ userSchema.index({ role: 1, isActive: 1 }); // Role and active status
 userSchema.index({ createdAt: -1 }); // Recent users
 userSchema.index({ lastLogin: 1 }); // Analytics active user counts
 userSchema.index({ isBanned: 1 }); // Admin ban filtering
+userSchema.index({ plan: 1 }); // Subscription plan filtering
 
 // Virtual field for CNIC verification status (for easier access)
 userSchema.virtual('cnicVerificationStatus').get(function() {
