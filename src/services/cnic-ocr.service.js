@@ -100,7 +100,16 @@ class CNICOCRService {
       if (backPath) args.push(backPath);
       
       const pythonProcess = spawn(this.pythonCommand, args, {
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        env: {
+          ...process.env,
+          EASYOCR_MODULE_PATH: process.env.EASYOCR_MODULE_PATH || path.join(process.cwd(), '.EasyOCR'),
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUNBUFFERED: '1',
+          OMP_NUM_THREADS: process.env.OCR_NUM_THREADS || '1',
+          OPENBLAS_NUM_THREADS: process.env.OCR_NUM_THREADS || '1',
+          MKL_NUM_THREADS: process.env.OCR_NUM_THREADS || '1',
+          NUMEXPR_NUM_THREADS: process.env.OCR_NUM_THREADS || '1',
+        },
       });
       
       let stdout = '';
@@ -111,10 +120,24 @@ class CNICOCRService {
         stderr += data.toString();
       });
       
-      pythonProcess.on('close', (code) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        pythonProcess.kill();
+        reject(new Error('EasyOCR timeout (120s)'));
+      }, 120000);
+
+      pythonProcess.on('close', (code, signal) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+
         if (code !== 0 && !stdout.includes('{')) {
-          console.error(`    Python exited: ${code}`);
-          return reject(new Error(`EasyOCR failed: ${stderr}`));
+          const exitReason = signal ? `signal ${signal}` : `code ${code}`;
+          console.error(`    Python exited with ${exitReason}`);
+          if (stderr) console.error(`    Python stderr: ${stderr}`);
+          return reject(new Error(`EasyOCR failed: Python exited with ${exitReason}${stderr ? `: ${stderr}` : ''}`));
         }
         
         try {
@@ -131,17 +154,16 @@ class CNICOCRService {
       });
       
       pythonProcess.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+
         if (err.code === 'ENOENT') {
           reject(new Error('Python not found'));
         } else {
           reject(err);
         }
       });
-      
-      setTimeout(() => {
-        pythonProcess.kill();
-        reject(new Error('EasyOCR timeout (120s)'));
-      }, 120000);
     });
   }
 

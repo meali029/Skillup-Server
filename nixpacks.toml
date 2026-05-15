@@ -8,7 +8,10 @@ cmds = [
 ]
 
 [phases.build]
-cmds = ['echo "skip build"']
+cmds = [
+  'mkdir -p /app/.EasyOCR',
+  'EASYOCR_MODULE_PATH=/app/.EasyOCR python3 -c "import easyocr; easyocr.Reader([\"en\"], gpu=False, verbose=False, model_storage_directory=\"/app/.EasyOCR\")"'
+]
 
 [start]
-cmd = 'npm start'
+cmd = 'EASYOCR_MODULE_PATH=/app/.EasyOCR npm start'
