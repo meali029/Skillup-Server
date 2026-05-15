@@ -13,7 +13,7 @@ from datetime import datetime
 
 # Suppress warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['EASYOCR_MODULE_PATH'] = os.path.join(os.path.expanduser('~'), '.EasyOCR')
+os.environ.setdefault('EASYOCR_MODULE_PATH', os.path.join(os.path.expanduser('~'), '.EasyOCR'))
 
 try:
     import easyocr
