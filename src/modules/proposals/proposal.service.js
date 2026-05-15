@@ -6,10 +6,11 @@ import Message from "../../models/Message.js";
 import { AppError, createAppError } from "../../core/errors/index.js";
 import { notifyUser } from "../notifications/notification.service.js";
 import aiService from "../../services/ai/ai.service.js";
+import Subscription from "../../models/Subscription.js";
+import { getPlanLimits } from "../../config/subscription.config.js";
 
-// Weekly Proposal Limit Constants
-const WEEKLY_PROPOSAL_LIMIT = 20;
-const LIMIT_WINDOW_DAYS = 7;
+// Rolling window for free-tier proposal counting
+const FREE_TIER_WINDOW_DAYS = 7;
 
 // Edit Window Constants
 const EDIT_WINDOW_HOURS = 6;
@@ -42,91 +43,121 @@ const checkCanEditProposal = (proposal) => {
 };
 
 /**
- * Get the count of proposals submitted by a freelancer in the last 7 days
- * Excludes withdrawn proposals (they don't count toward the limit)
- * 
- * @param {string} freelancerId - The freelancer's user ID
- * @returns {Promise<{count: number, oldestProposal: Date|null}>}
+ * Get proposal count for a freelancer based on their plan.
+ * - Free plan: counts non-withdrawn proposals in a 7-day rolling window (DB query)
+ * - Paid plans: reads the atomic counter from Subscription.usage (no Proposal query)
+ *
+ * @param {string} freelancerId
+ * @param {Object} user - user document (needs plan field)
+ * @returns {Promise<{count: number, limit: number, resetsAt: Date|null, periodType: string, billingPeriodEnd: Date|null}>}
  */
-const getWeeklyProposalCount = async (freelancerId) => {
-  const windowStart = new Date(Date.now() - LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  
-  // Count non-withdrawn proposals in the window
-  const count = await Proposal.countDocuments({
-    freelancerId,
-    createdAt: { $gte: windowStart },
-    status: { $ne: 'withdrawn' },
-  });
-  
-  // Find the oldest proposal in window (for reset time calculation)
-  const oldestProposal = await Proposal.findOne({
-    freelancerId,
-    createdAt: { $gte: windowStart },
-    status: { $ne: 'withdrawn' },
-  })
-    .sort({ createdAt: 1 })
-    .select('createdAt')
-    .lean();
-  
+const getProposalCount = async (freelancerId, user) => {
+  const planName = user.plan || 'free';
+  const limits = getPlanLimits(planName);
+  const limit = limits.proposals; // -1 = unlimited
+
+  // Unlimited plans skip counting entirely
+  if (limit === -1) {
+    return { count: 0, limit, resetsAt: null, periodType: 'unlimited', billingPeriodEnd: null };
+  }
+
+  // Free plan: 7-day rolling window, count actual non-withdrawn proposals
+  if (planName === 'free') {
+    const windowStart = new Date(Date.now() - FREE_TIER_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+    const count = await Proposal.countDocuments({
+      freelancerId,
+      createdAt: { $gte: windowStart },
+      status: { $ne: 'withdrawn' },
+    });
+
+    // Oldest proposal in window determines when next slot opens
+    const oldestProposal = await Proposal.findOne({
+      freelancerId,
+      createdAt: { $gte: windowStart },
+      status: { $ne: 'withdrawn' },
+    })
+      .sort({ createdAt: 1 })
+      .select('createdAt')
+      .lean();
+
+    const resetsAt =
+      oldestProposal && count >= limit
+        ? new Date(oldestProposal.createdAt.getTime() + FREE_TIER_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+        : null;
+
+    return { count, limit, resetsAt, periodType: 'weekly', billingPeriodEnd: null };
+  }
+
+  // Paid plans: use Subscription usage counter (source of truth)
+  const subscription = await Subscription.getActiveSubscription(freelancerId);
+  const count = subscription?.usage?.proposalsUsed || 0;
+  const billingPeriodEnd = subscription?.currentPeriodEnd || null;
+
   return {
     count,
-    oldestProposalDate: oldestProposal?.createdAt || null,
+    limit,
+    resetsAt: billingPeriodEnd, // resets when billing period ends
+    periodType: 'billing_period',
+    billingPeriodEnd,
   };
 };
 
 /**
- * Check if freelancer has exceeded weekly proposal limit
- * 
- * @param {string} freelancerId - The freelancer's user ID
- * @throws {AppError} If limit is exceeded (429)
+ * Check if freelancer has exceeded their plan's proposal limit
+ *
+ * @param {string} freelancerId
+ * @param {Object} user - user document (needs plan field)
+ * @throws {AppError} 429 if limit exceeded
  */
-const checkWeeklyProposalLimit = async (freelancerId) => {
-  const { count, oldestProposalDate } = await getWeeklyProposalCount(freelancerId);
-  
-  if (count >= WEEKLY_PROPOSAL_LIMIT) {
-    // Calculate when the oldest proposal will fall outside the window
-    const resetsAt = oldestProposalDate 
-      ? new Date(oldestProposalDate.getTime() + LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
-      : null;
-    
-    const error = createAppError(
-      `Weekly proposal limit exceeded. You have submitted ${count} proposals in the last 7 days. Maximum allowed: ${WEEKLY_PROPOSAL_LIMIT}.`,
-      429
-    );
-    error.code = 'PROPOSAL_LIMIT_EXCEEDED';
-    error.details = {
-      limit: WEEKLY_PROPOSAL_LIMIT,
-      used: count,
-      remaining: 0,
-      resetsAt,
-    };
-    throw error;
-  }
+const checkProposalLimit = async (freelancerId, user) => {
+  const { count, limit, resetsAt, periodType } = await getProposalCount(freelancerId, user);
+
+  // Unlimited or under limit — allow
+  if (limit === -1 || count < limit) return;
+
+  const planName = user.plan || 'free';
+  const periodLabel = periodType === 'weekly' ? 'in the last 7 days' : 'in this billing period';
+
+  const error = createAppError(
+    `Proposal limit reached. You have used ${count}/${limit} proposals ${periodLabel}. Upgrade your plan to continue.`,
+    429
+  );
+  error.code = 'PROPOSAL_LIMIT_EXCEEDED';
+  error.details = {
+    plan: planName,
+    limit,
+    used: count,
+    remaining: 0,
+    resetsAt,
+    periodType,
+  };
+  throw error;
 };
 
 /**
- * Get proposal limit status for a freelancer
- * 
- * @param {string} freelancerId - The freelancer's user ID
+ * Get proposal limit status for a freelancer (plan-aware)
+ *
+ * @param {string} freelancerId
  * @returns {Promise<Object>} Limit status details
  */
 export const getProposalLimitStatus = async (freelancerId) => {
-  const { count, oldestProposalDate } = await getWeeklyProposalCount(freelancerId);
-  
-  const remaining = Math.max(0, WEEKLY_PROPOSAL_LIMIT - count);
-  
-  // Calculate reset time (when oldest proposal exits the window)
-  const resetsAt = oldestProposalDate && count >= WEEKLY_PROPOSAL_LIMIT
-    ? new Date(oldestProposalDate.getTime() + LIMIT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
-    : null;
-  
+  const user = await User.findById(freelancerId).select('plan');
+  if (!user) throw createAppError('User not found', 404);
+
+  const { count, limit, resetsAt, periodType, billingPeriodEnd } = await getProposalCount(freelancerId, user);
+
+  const remaining = limit === -1 ? -1 : Math.max(0, limit - count);
+
   return {
-    limit: WEEKLY_PROPOSAL_LIMIT,
+    plan: user.plan || 'free',
+    limit,
     used: count,
     remaining,
-    windowDays: LIMIT_WINDOW_DAYS,
     resetsAt,
-    canSubmit: count < WEEKLY_PROPOSAL_LIMIT,
+    canSubmit: limit === -1 || count < limit,
+    periodType,
+    billingPeriodEnd,
   };
 };
 
@@ -141,8 +172,8 @@ export const createProposal = async (userId, proposalData) => {
     throw createAppError("Only freelancers can submit proposals", 403);
   }
 
-  // Check weekly proposal limit BEFORE any other validation
-  await checkWeeklyProposalLimit(userId);
+  // Check plan-based proposal limit BEFORE any other validation
+  await checkProposalLimit(userId, user);
 
   const job = await Job.findById(jobId);
   if (!job) {
@@ -214,6 +245,15 @@ export const createProposal = async (userId, proposalData) => {
     });
   } catch (err) {
     console.error('[Notification] Failed to notify job owner about proposal', err.message);
+  }
+
+  // Track usage in subscription counter for paid plans
+  if (user.plan && user.plan !== 'free') {
+    try {
+      await Subscription.incrementUsage(userId, 'proposalsUsed');
+    } catch (err) {
+      console.error('[Subscription] Failed to increment proposal usage', err.message);
+    }
   }
 
   return populatedProposal;
@@ -736,11 +776,17 @@ export const generateProposalDraft = async (jobId, userId) => {
       },
     };
   } catch (error) {
-    // If AI generation fails, throw user-friendly error
+    // Map known AI error codes to clean user-facing messages
+    if (error.statusCode === 429) {
+      throw createAppError(
+        'AI generation limit reached. The service is temporarily at capacity — please wait a moment and try again.',
+        429
+      );
+    }
     if (error.statusCode) {
       throw error;
     }
-    throw createAppError('Failed to generate proposal draft', 500);
+    throw createAppError('Failed to generate proposal draft. Please try again later.', 500);
   }
 };
 

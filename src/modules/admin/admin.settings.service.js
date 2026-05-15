@@ -35,6 +35,7 @@ class AdminSettingsService {
         'aiProposalGeneration',
         'aiMatchScoreEnhancement',
         'aiProvider',
+        'safepayEnabled',
       ];
 
       const validatedUpdates = {};

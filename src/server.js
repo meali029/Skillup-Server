@@ -17,6 +17,9 @@ import "./models/index.js";
 import { verifyEmailConfig } from "./core/utils/emailService.js";
 import { initializeSocketServer } from "./sockets/index.js";
 import { initializeEnvLoader } from "./core/utils/envLoader.js";
+import { connectRedis, disconnectRedis } from "./config/redis.js";
+import { startWorkers, stopWorkers } from "./workers/index.js";
+import { initSubscriptionRenewalCron } from "./workers/subscriptionRenewal.worker.js";
 
 // ===== PRODUCTION STARTUP DIAGNOSTICS =====
 const logEnvStatus = () => {
@@ -62,21 +65,29 @@ const HOST = '0.0.0.0'; // Listen on all network interfaces (required for Railwa
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Initialize Socket.io
-initializeSocketServer(httpServer);
-
 // Initialize database connection and start server
 connectDB()
   .then(async () => {
+    // Connect Redis (non-blocking — app falls back if Redis is unavailable)
+    await connectRedis().catch(() => {});
+
+    // Initialize Socket.io (after Redis so adapter can attach)
+    initializeSocketServer(httpServer);
+
     try {
       await initializeEnvLoader();
     } catch (error) {
       console.error('[Server] Error initializing env loader:', error);
-      // Continue anyway - will use .env file
     }
 
     // Verify email configuration on startup
     verifyEmailConfig();
+
+    // Start BullMQ workers (email, OCR)
+    await startWorkers();
+
+    // Start subscription renewal cron job
+    initSubscriptionRenewalCron();
 
     // Start the HTTP server AFTER database is connected
     httpServer.listen(PORT, HOST, () => {
@@ -102,3 +113,14 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ [Server] Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });
+
+// Graceful shutdown
+const shutdown = async (signal) => {
+  console.log(`\n[Server] ${signal} received — shutting down gracefully`);
+  await stopWorkers().catch(() => {});
+  await disconnectRedis().catch(() => {});
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

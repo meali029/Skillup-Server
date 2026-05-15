@@ -15,6 +15,7 @@ import {
 import jazzCashService from '../../services/paymentGateways/jazzCash.service.js';
 import easypaisaService from '../../services/paymentGateways/easypaisa.service.js';
 import bankTransferService from '../../services/paymentGateways/bankTransfer.service.js';
+import safepayService from '../../services/paymentGateways/safepay.service.js';
 
 /**
  * Withdrawal Service
@@ -157,6 +158,9 @@ class WithdrawalService {
           throw createAppError('Bank name is required for bank transfers', 400);
         }
         break;
+      case PAYMENT_METHOD.SAFEPAY:
+        // Safepay withdrawals are auto-approved (mock) — no account details required
+        break;
       default:
         throw createAppError('Invalid payment method', 400);
     }
@@ -210,6 +214,9 @@ class WithdrawalService {
           break;
         case PAYMENT_METHOD.BANK_TRANSFER:
           withdrawalResult = await bankTransferService.processWithdrawal(withdrawalData);
+          break;
+        case PAYMENT_METHOD.SAFEPAY:
+          withdrawalResult = await safepayService.processWithdrawal(withdrawalData);
           break;
         default:
           throw createAppError('Payment method not supported', 400);

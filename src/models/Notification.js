@@ -15,6 +15,7 @@ const notificationSchema = new mongoose.Schema(
 );
 
 notificationSchema.index({ userId: 1, createdAt: -1 });
+notificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 }); // Covers unread-count & sorted listing
 
 const Notification = mongoose.model('Notification', notificationSchema);
 

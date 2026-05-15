@@ -43,6 +43,84 @@ router.get('/revenue', paymentManagementController.getPlatformRevenueStats);
 
 /**
  * @swagger
+ * /api/admin/payments/analytics:
+ *   get:
+ *     summary: Get detailed revenue analytics with charts data
+ *     tags: [Admin - Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: months
+ *         schema:
+ *           type: integer
+ *           default: 12
+ *         description: Number of months to include in analytics
+ *     responses:
+ *       200:
+ *         description: Revenue analytics data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                     monthly:
+ *                       type: array
+ *                     daily:
+ *                       type: array
+ *                     byPaymentMethod:
+ *                       type: array
+ *                     topFreelancers:
+ *                       type: array
+ */
+router.get('/analytics', paymentManagementController.getRevenueAnalytics);
+
+/**
+ * @swagger
+ * /api/admin/payments/gateway-status:
+ *   get:
+ *     summary: Get payment gateway credentials status and production readiness
+ *     tags: [Admin - Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Gateway status information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     paymentMode:
+ *                       type: string
+ *                       enum: [testing, production]
+ *                     isTestingMode:
+ *                       type: boolean
+ *                     productionReady:
+ *                       type: boolean
+ *                     hasWarnings:
+ *                       type: boolean
+ *                     gateways:
+ *                       type: object
+ *                     recommendations:
+ *                       type: array
+ */
+router.get('/gateway-status', paymentManagementController.getPaymentGatewayStatus);
+
+/**
+ * @swagger
  * /api/admin/payments/escrows:
  *   get:
  *     summary: Get all escrows with filters
@@ -500,6 +578,183 @@ router.get('/mode', paymentManagementController.getPaymentMode);
  *         description: Not authorized (admin only)
  */
 router.post('/mode', paymentManagementController.updatePaymentMode);
+
+// ========================================
+// PLATFORM WALLET WITHDRAWAL ROUTES
+// ========================================
+
+/**
+ * @swagger
+ * /api/admin/payments/platform-wallet:
+ *   get:
+ *     summary: Get platform wallet details and recent withdrawals
+ *     tags: [Admin - Platform Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Platform wallet details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     wallet:
+ *                       type: object
+ *                       properties:
+ *                         availableBalance:
+ *                           type: number
+ *                         totalFeesCollected:
+ *                           type: number
+ *                         totalWithdrawn:
+ *                           type: number
+ *                     recentWithdrawals:
+ *                       type: array
+ *                     pendingWithdrawals:
+ *                       type: array
+ */
+router.get('/platform-wallet', paymentManagementController.getPlatformWalletDetails);
+
+/**
+ * @swagger
+ * /api/admin/payments/platform-wallet/withdraw:
+ *   post:
+ *     summary: Create platform wallet withdrawal request
+ *     tags: [Admin - Platform Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *               - paymentMethod
+ *               - accountDetails
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 minimum: 1000
+ *               paymentMethod:
+ *                 type: string
+ *                 enum: [JAZZCASH, EASYPAISA, BANK_TRANSFER]
+ *               accountDetails:
+ *                 type: object
+ *                 properties:
+ *                   accountNumber:
+ *                     type: string
+ *                   accountTitle:
+ *                     type: string
+ *                   bankName:
+ *                     type: string
+ *                   phoneNumber:
+ *                     type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Withdrawal request created
+ *       400:
+ *         description: Invalid request or insufficient balance
+ */
+router.post('/platform-wallet/withdraw', paymentManagementController.createPlatformWithdrawal);
+
+/**
+ * @swagger
+ * /api/admin/payments/platform-wallet/withdrawals:
+ *   get:
+ *     summary: Get platform withdrawal history
+ *     tags: [Admin - Platform Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED]
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Withdrawal history
+ */
+router.get('/platform-wallet/withdrawals', paymentManagementController.getPlatformWithdrawalHistory);
+
+/**
+ * @swagger
+ * /api/admin/payments/platform-wallet/withdrawals/{id}/process:
+ *   post:
+ *     summary: Process (execute) a platform withdrawal
+ *     tags: [Admin - Platform Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Withdrawal processed
+ *       404:
+ *         description: Withdrawal not found
+ */
+router.post('/platform-wallet/withdrawals/:id/process', paymentManagementController.processPlatformWithdrawal);
+
+/**
+ * @swagger
+ * /api/admin/payments/platform-wallet/withdrawals/{id}/cancel:
+ *   post:
+ *     summary: Cancel a pending platform withdrawal
+ *     tags: [Admin - Platform Wallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Withdrawal cancelled
+ *       404:
+ *         description: Withdrawal not found
+ */
+router.post('/platform-wallet/withdrawals/:id/cancel', paymentManagementController.cancelPlatformWithdrawal);
 
 export default router;
 

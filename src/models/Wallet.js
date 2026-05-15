@@ -82,7 +82,7 @@ const walletSchema = new mongoose.Schema(
       {
         type: {
           type: String,
-          enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER'],
+          enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'SAFEPAY'],
         },
         accountNumber: {
           type: String,

@@ -17,7 +17,7 @@ import {
   validateUpdateJob,
   validateJobQuery,
 } from './job.validation.js';
-import { authenticate, authorize, aiRateLimit } from '../../core/middlewares/index.js';
+import { authenticate, authorize, aiRateLimit, checkPlanLimit } from '../../core/middlewares/index.js';
 
 const router = express.Router();
 
@@ -476,7 +476,7 @@ router.patch('/:id/close', authorize('client'), closeJob);
  *       429:
  *         description: Rate limit exceeded
  */
-router.get('/freelancer/recommended', authorize('freelancer'), aiRateLimit('recommendation', { skipAdmin: true }), getRecommendedJobs);
+router.get('/freelancer/recommended', authorize('freelancer'), checkPlanLimit('aiRequests'), aiRateLimit('recommendation', { skipAdmin: true }), getRecommendedJobs);
 
 /**
  * @swagger
@@ -509,7 +509,7 @@ router.get('/freelancer/recommended', authorize('freelancer'), aiRateLimit('reco
  *       429:
  *         description: Rate limit exceeded
  */
-router.get('/:id/recommended-freelancers', authorize('client'), aiRateLimit('recommendation', { skipAdmin: true }), getRecommendedFreelancers);
+router.get('/:id/recommended-freelancers', authorize('client'), checkPlanLimit('aiRequests'), aiRateLimit('recommendation', { skipAdmin: true }), getRecommendedFreelancers);
 
 export default router;
 

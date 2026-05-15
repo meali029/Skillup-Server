@@ -34,6 +34,8 @@ const transactionSchema = new mongoose.Schema(
         'FEE',
         'ADJUSTMENT', // Admin adjustments
         'BONUS', // Platform bonuses
+        'SUBSCRIPTION',
+        'SUBSCRIPTION_RENEWAL',
       ],
       required: true,
       index: true,
@@ -84,7 +86,7 @@ const transactionSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SYSTEM'],
+      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SYSTEM', 'SAFEPAY'],
       default: 'WALLET',
     },
     gatewayTransactionId: {

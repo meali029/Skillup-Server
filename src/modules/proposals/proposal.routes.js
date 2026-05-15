@@ -24,7 +24,7 @@ import {
   validateProposalQuery,
   validateRejectProposal,
 } from "./proposal.validation.js";
-import { authenticate, authorize, aiRateLimit } from "../../core/middlewares/index.js";
+import { authenticate, authorize, aiRateLimit, checkPlanLimit } from "../../core/middlewares/index.js";
 
 const router = express.Router();
 
@@ -134,7 +134,7 @@ router.get("/limit-status", authorize("freelancer"), getProposalLimitStatus);
  *       400:
  *         description: Validation error or already applied
  */
-router.post("/", authorize("freelancer"), validateSubmitProposal, submitProposal);
+router.post("/", authorize("freelancer"), checkPlanLimit('proposals'), validateSubmitProposal, submitProposal);
 
 /**
  * @swagger
@@ -368,7 +368,7 @@ router.delete("/:id", authorize("freelancer"), validateProposalId, withdrawPropo
  *       429:
  *         description: Rate limit exceeded
  */
-router.get("/draft/:jobId", authorize("freelancer", "admin"), validateJobId, aiRateLimit("proposal", { skipAdmin: true }), generateProposalDraft);
+router.get("/draft/:jobId", authorize("freelancer", "admin"), validateJobId, checkPlanLimit('aiRequests'), aiRateLimit("proposal", { skipAdmin: true }), generateProposalDraft);
 
 /**
  * @swagger
@@ -400,7 +400,7 @@ router.get("/draft/:jobId", authorize("freelancer", "admin"), validateJobId, aiR
  *       429:
  *         description: Rate limit exceeded
  */
-router.post("/draft/:jobId/regenerate", authorize("freelancer", "admin"), validateJobId, aiRateLimit("proposal", { skipAdmin: true }), regenerateProposalDraft);
+router.post("/draft/:jobId/regenerate", authorize("freelancer", "admin"), validateJobId, checkPlanLimit('aiRequests'), aiRateLimit("proposal", { skipAdmin: true }), regenerateProposalDraft);
 
 /**
  * @swagger

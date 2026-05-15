@@ -15,7 +15,7 @@ const withdrawalRequestSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER'],
+      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'SAFEPAY'],
       required: true,
     },
     accountDetails: {

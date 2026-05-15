@@ -105,7 +105,7 @@ const escrowSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SYSTEM', 'CONTRACT_ESCROW'],
+      enum: ['JAZZCASH', 'EASYPAISA', 'BANK_TRANSFER', 'WALLET', 'SYSTEM', 'CONTRACT_ESCROW', 'SAFEPAY'],
       default: 'WALLET',
     },
     // Release notes/reason

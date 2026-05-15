@@ -11,6 +11,8 @@ import {
 import jazzCashService from '../../services/paymentGateways/jazzCash.service.js';
 import easypaisaService from '../../services/paymentGateways/easypaisa.service.js';
 import bankTransferService from '../../services/paymentGateways/bankTransfer.service.js';
+import safepayService from '../../services/paymentGateways/safepay.service.js';
+import AdminSettings from '../../models/AdminSettings.js';
 
 /**
  * Payment Service
@@ -84,6 +86,9 @@ class PaymentService {
         case PAYMENT_METHOD.BANK_TRANSFER:
           paymentResponse = await bankTransferService.initializePayment(paymentData);
           break;
+        case PAYMENT_METHOD.SAFEPAY:
+          paymentResponse = await safepayService.initializePayment(paymentData);
+          break;
         default:
           throw createAppError('Payment method not supported', 400);
       }
@@ -147,6 +152,9 @@ class PaymentService {
         // Bank transfers require manual verification
         verificationResult = await bankTransferService.verifyPayment(callbackData);
         break;
+      case PAYMENT_METHOD.SAFEPAY:
+        verificationResult = await safepayService.verifyPayment(callbackData);
+        break;
       default:
         throw createAppError('Payment method not supported', 400);
     }
@@ -178,14 +186,16 @@ class PaymentService {
               gatewayTransactionId: verificationResult.gatewayTransactionId,
             });
 
-            // If this is for contract creation, update contract payment status
+            // If this is for contract creation, update contract payment status and activate
             if (escrow.contractId && escrow.milestoneId === 'TOTAL') {
               const contract = await Contract.findById(escrow.contractId);
               if (contract) {
                 contract.paymentStatus = 'COMPLETED';
+                // Activate the contract now that escrow is funded
+                if (contract.status === 'pending') {
+                  contract.status = 'active';
+                }
                 await contract.save();
-                
-                // TODO: Send notification to freelancer that contract is ready for acceptance
               }
             }
           }
@@ -267,9 +277,27 @@ class PaymentService {
 
   /**
    * Get available payment methods
-   * @returns {Array} Array of available payment methods
+   * Returns only Safepay when safepayEnabled flag is on, otherwise returns default methods
+   * @returns {Promise<Array>} Array of available payment methods
    */
-  getPaymentMethods() {
+  async getPaymentMethods() {
+    try {
+      const settings = await AdminSettings.getSettings();
+      if (settings.safepayEnabled) {
+        return [
+          {
+            value: PAYMENT_METHOD.SAFEPAY,
+            label: 'Safepay',
+            icon: 'safepay',
+            available: true,
+          },
+        ];
+      }
+    } catch (error) {
+      // If settings fail to load, fall through to defaults
+      console.error('Failed to check safepay setting:', error.message);
+    }
+
     return [
       {
         value: PAYMENT_METHOD.JAZZCASH,

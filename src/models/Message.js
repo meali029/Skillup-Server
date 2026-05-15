@@ -113,6 +113,7 @@ messageSchema.index({ sender: 1, createdAt: -1 });
 
 // Text index for search
 messageSchema.index({ content: 'text' });
+messageSchema.index({ isDeleted: 1, conversation: 1, createdAt: -1 }); // Soft-delete filtering
 
 // Methods
 messageSchema.methods.markAsRead = function (userId) {

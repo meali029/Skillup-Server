@@ -84,6 +84,8 @@ proposalSchema.index({ freelancerId: 1, jobId: 1 }, { unique: true });
 
 // Index for common queries
 proposalSchema.index({ status: 1, createdAt: -1 });
+proposalSchema.index({ freelancerId: 1, createdAt: -1, status: 1 }); // Weekly proposal count for rate limiting
+proposalSchema.index({ jobId: 1, status: 1 }); // Proposals per job queries
 
 const Proposal = mongoose.model("Proposal", proposalSchema);
 

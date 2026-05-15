@@ -1,15 +1,26 @@
 import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
+import redisClient, { isRedisConnected } from '../../config/redis.js';
 import { createAppError } from '../errors/index.js';
 
 /**
  * Payment Rate Limiting Middleware
- * Protects payment endpoints from abuse
+ * Uses Redis store when available, falls back to in-memory.
  */
+
+const makeStore = (prefix) => {
+  if (!isRedisConnected()) return undefined; // default in-memory
+  return new RedisStore({
+    sendCommand: (...args) => redisClient.call(...args),
+    prefix: `rl:${prefix}:`,
+  });
+};
 
 // Rate limit for deposit initialization (5 per hour)
 export const depositRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 5,
+  store: makeStore('deposit'),
   message: 'Too many deposit attempts. Please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -26,6 +37,7 @@ export const depositRateLimit = rateLimit({
 export const withdrawalRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3,
+  store: makeStore('withdrawal'),
   message: 'Too many withdrawal requests. Please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -42,6 +54,7 @@ export const withdrawalRateLimit = rateLimit({
 export const paymentVerificationRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
+  store: makeStore('pv'),
   message: 'Too many verification attempts. Please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -52,6 +65,7 @@ export const paymentVerificationRateLimit = rateLimit({
 export const paymentRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 100,
+  store: makeStore('pay'),
   message: 'Too many payment requests. Please try again later.',
   standardHeaders: true,
   legacyHeaders: false,

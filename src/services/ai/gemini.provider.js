@@ -192,14 +192,21 @@ class GeminiProvider extends AIProviderInterface {
       }
 
       // Handle specific errors
-      if (error.statusCode === 429) {
+      // Note: Google SDK uses error.status (not error.statusCode) and embeds the HTTP
+      // status in the message string — check both to be safe.
+      const httpStatus = error.status ?? error.statusCode;
+      const msg = error.message || '';
+
+      if (httpStatus === 429 || msg.includes('429') || msg.toLowerCase().includes('quota')) {
         throw AIRateLimitError();
-      } else if (error.statusCode === 504) {
+      } else if (httpStatus === 504 || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('timed out')) {
         throw AITimeoutError(timeout);
-      } else if (error.message?.includes('API key')) {
-        throw AIConfigurationError('Invalid Gemini API key');
+      } else if (httpStatus === 503 || msg.toLowerCase().includes('unavailable')) {
+        throw AIProviderError('AI service is temporarily unavailable. Please try again shortly.', 503);
+      } else if (msg.toLowerCase().includes('api key') || httpStatus === 400) {
+        throw AIConfigurationError('Invalid or missing Gemini API key');
       } else {
-        throw AIProviderError(error.message || 'Unknown Gemini error', 500);
+        throw AIProviderError('AI provider encountered an error. Please try again later.', 500);
       }
     }
   }

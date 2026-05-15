@@ -9,9 +9,9 @@ import https from 'https';
 import http from 'http';
 
 /**
- * CNIC OCR Service - Using PaddleOCR for Pakistani National Identity Cards
+ * CNIC OCR Service - Using EasyOCR for Pakistani National Identity Cards
  * 
- * Replaces Tesseract.js with PaddleOCR (Python) for ~95% accuracy on Pakistani CNICs.
+ * Replaces Tesseract.js with EasyOCR (Python) for higher accuracy on Pakistani CNICs.
  */
 
 const CNIC_REGEX = /^\d{5}-\d{7}-\d{1}$/;
@@ -31,7 +31,10 @@ const CNIC_REGIONS = {
 
 class CNICOCRService {
   constructor() {
-    this.pythonCommand = 'C:\\Users\\Mehboob Ali\\AppData\\Local\\Programs\\Python\\Python313\\python.exe';
+    this.pythonCommand =
+      process.env.PYTHON_PATH ||
+      process.env.PYTHON ||
+      (process.platform === 'win32' ? 'python' : 'python3');
     this.tempDir = os.tmpdir();
   }
 
@@ -90,7 +93,7 @@ class CNICOCRService {
     }
   }
 
-  async runPaddleOCR(frontPath, backPath = null) {
+  async runEasyOCR(frontPath, backPath = null) {
     return new Promise((resolve, reject) => {
 
       const args = [PYTHON_SCRIPT_PATH, frontPath];
@@ -111,7 +114,7 @@ class CNICOCRService {
       pythonProcess.on('close', (code) => {
         if (code !== 0 && !stdout.includes('{')) {
           console.error(`    Python exited: ${code}`);
-          return reject(new Error(`PaddleOCR failed: ${stderr}`));
+          return reject(new Error(`EasyOCR failed: ${stderr}`));
         }
         
         try {
@@ -137,7 +140,7 @@ class CNICOCRService {
       
       setTimeout(() => {
         pythonProcess.kill();
-        reject(new Error('PaddleOCR timeout (120s)'));
+        reject(new Error('EasyOCR timeout (120s)'));
       }, 120000);
     });
   }
@@ -168,7 +171,7 @@ class CNICOCRService {
       extractedGender: null,
       confidence: 0,
       isLowConfidence: true,
-      extractionMethod: 'paddleocr',
+      extractionMethod: 'easyocr',
       rawText: { front: '', back: '' },
       extractedAt: new Date(),
       errors: [],
@@ -204,7 +207,7 @@ class CNICOCRService {
         if (backPath) tempFiles.push(backPath);
       }
 
-      const ocrResult = await this.runPaddleOCR(frontPath, backPath);
+      const ocrResult = await this.runEasyOCR(frontPath, backPath);
 
       if (ocrResult.success) {
         result.success = true;
@@ -213,7 +216,7 @@ class CNICOCRService {
         result.extractedFatherName = ocrResult.extractedFatherName;
         result.extractedGender = ocrResult.extractedGender;
         result.confidence = ocrResult.confidence || 0;
-        result.extractionMethod = ocrResult.method || 'paddleocr';
+        result.extractionMethod = ocrResult.method || 'easyocr';
         
         if (ocrResult.extractedDateOfBirth) {
           result.extractedDateOfBirth = this.parseDate(ocrResult.extractedDateOfBirth);
@@ -284,9 +287,9 @@ class CNICOCRService {
 
   }
 
-  async checkPaddleOCR() {
+  async checkEasyOCR() {
     return new Promise((resolve) => {
-      const check = spawn(this.pythonCommand, ['-c', 'import paddleocr; print("OK")']);
+      const check = spawn(this.pythonCommand, ['-c', 'import easyocr, cv2, numpy; print("OK")']);
       let output = '';
       check.stdout.on('data', (d) => { output += d.toString(); });
       check.on('close', (code) => resolve(code === 0 && output.includes('OK')));

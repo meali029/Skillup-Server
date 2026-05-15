@@ -12,6 +12,7 @@ export const PAYMENT_METHOD = {
   BANK_TRANSFER: 'BANK_TRANSFER',
   WALLET: 'WALLET',
   SYSTEM: 'SYSTEM',
+  SAFEPAY: 'SAFEPAY',
 };
 
 // Transaction type enumeration
@@ -26,6 +27,8 @@ export const TRANSACTION_TYPE = {
   FEE: 'FEE',
   ADJUSTMENT: 'ADJUSTMENT',
   BONUS: 'BONUS',
+  SUBSCRIPTION: 'SUBSCRIPTION',
+  SUBSCRIPTION_RENEWAL: 'SUBSCRIPTION_RENEWAL',
 };
 
 // Transaction direction

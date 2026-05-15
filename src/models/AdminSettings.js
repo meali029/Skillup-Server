@@ -40,6 +40,12 @@ const adminSettingsSchema = new mongoose.Schema(
       default: 'gemini',
     },
 
+    // Safepay payment gateway toggle
+    safepayEnabled: {
+      type: Boolean,
+      default: false,
+    },
+
     // Additional settings
     settings: {
       type: Map,
