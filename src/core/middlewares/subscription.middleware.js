@@ -1,10 +1,12 @@
 import Subscription from '../../models/Subscription.js';
 import User from '../../models/User.js';
+import Job from '../../models/Job.js';
 import { getPlanLimits, getPlanFeature } from '../../config/subscription.config.js';
 import { createAppError } from '../errors/index.js';
 
 // Rolling window for free-tier AI counting
 const FREE_AI_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const FREE_JOB_POST_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /**
  * Middleware factory: check if user has remaining quota for a resource
@@ -38,6 +40,14 @@ export function checkPlanLimit(resource) {
         }
         // Tag request so aiRateLimit knows where to track
         req._aiUsageSource = 'user';
+      } else if (resource === 'jobPosts' && planName === 'free') {
+        const windowStart = new Date(Date.now() - FREE_JOB_POST_WINDOW_MS);
+        used = await Job.countDocuments({
+          client: req.user.id,
+          isActive: true,
+          deletedAt: null,
+          createdAt: { $gte: windowStart },
+        });
       } else {
         // Paid plans: read from Subscription model
         const subscription = await Subscription.getActiveSubscription(req.user.id);

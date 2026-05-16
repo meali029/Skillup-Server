@@ -7,7 +7,8 @@ import invoiceService from '../../services/invoice.service.js';
  * Public — list all plans with pricing
  */
 export const getPlans = asyncHandler(async (req, res) => {
-  const plans = subscriptionService.getPlans();
+  const requestedRole = typeof req.query.role === 'string' ? req.query.role : req.user?.role;
+  const plans = subscriptionService.getPlans(requestedRole);
   res.json({ success: true, data: plans });
 });
 

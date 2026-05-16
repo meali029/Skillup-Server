@@ -1,6 +1,7 @@
 import Job from '../../models/Job.js';
 import User from '../../models/User.js';
 import Proposal from '../../models/Proposal.js';
+import Subscription from '../../models/Subscription.js';
 import { AppError } from '../../core/errors/index.js';
 import matchingService from '../../services/matching/matching.service.js';
 import aiService from '../../services/ai/ai.service.js';
@@ -32,6 +33,11 @@ export const canChangeStatus = (currentStatus, newStatus) => {
 };
 
 export const createJob = async (jobData, clientId) => {
+  const clientUser = await User.findById(clientId).select('plan');
+  if (!clientUser) {
+    throw AppError('Client not found', 404);
+  }
+
   const job = new Job({
     ...jobData,
     client: clientId,
@@ -46,6 +52,11 @@ export const createJob = async (jobData, clientId) => {
       activeJobsCount: job.status === 'open' ? 1 : 0
     }
   });
+
+  // Paid-plan usage is tracked on active subscriptions.
+  if (clientUser.plan && clientUser.plan !== 'free') {
+    await Subscription.incrementUsage(clientId, 'jobsPosted');
+  }
   
   return job;
 };

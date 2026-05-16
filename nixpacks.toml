@@ -1,17 +1,11 @@
 [phases.setup]
-nixPkgs = ['nodejs_20', 'python311', 'python311Packages.pip']
+nixPkgs = ['nodejs_20']
 
 [phases.install]
-cmds = [
-  'npm ci',
-  'pip install --break-system-packages --no-cache-dir -r requirements.txt'
-]
+cmds = ['npm ci']
 
 [phases.build]
-cmds = [
-  'mkdir -p /app/.EasyOCR',
-  'EASYOCR_MODULE_PATH=/app/.EasyOCR python3 -c "import easyocr; easyocr.Reader([\"en\"], gpu=False, verbose=False, model_storage_directory=\"/app/.EasyOCR\")"'
-]
+cmds = ['echo "skip build"']
 
 [start]
-cmd = 'EASYOCR_MODULE_PATH=/app/.EasyOCR npm start'
+cmd = 'npm start'

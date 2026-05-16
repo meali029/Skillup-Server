@@ -21,15 +21,50 @@ import safepayService from '../../services/paymentGateways/safepay.service.js';
 import invoiceService from '../../services/invoice.service.js';
 import logger from '../../core/utils/logger.js';
 
+const PLAN_CATALOG_ROLES = new Set(['freelancer', 'client']);
+const SUBSCRIBER_ROLES = new Set(['freelancer', 'client']);
+
+const normalizeCatalogRole = (role) => {
+  const normalized = String(role || '').toLowerCase();
+  return PLAN_CATALOG_ROLES.has(normalized) ? normalized : 'freelancer';
+};
+
+const normalizePlanFeatures = (features = {}) => ({
+  ...features,
+  aiProposalOptimize: features.aiProposalOptimize ?? features.aiBidSuggestion ?? false,
+  aiCoverLetter: features.aiCoverLetter ?? false,
+  aiInterviewPrep: features.aiInterviewPrep ?? false,
+  featuredProfile: features.featuredProfile ?? features.profileBoost ?? false,
+});
+
 class SubscriptionService {
   /**
    * Return all plans with pricing
    */
-  getPlans() {
+  getPlans(role = 'freelancer') {
+    const catalogRole = normalizeCatalogRole(role);
+
     return Object.entries(PLAN_LIMITS).map(([key, plan]) => ({
       id: key,
       ...plan,
+      commission: plan.commissionRate,
+      catalogRole,
+      features: normalizePlanFeatures(plan.features),
     }));
+  }
+
+  /**
+   * Ensure subscription actions are only available for end-user roles.
+   */
+  async _assertSubscriberRole(userId) {
+    const user = await User.findById(userId).select('role');
+    if (!user) throw createAppError('User not found', 404);
+
+    if (!SUBSCRIBER_ROLES.has(user.role)) {
+      throw createAppError('Subscription plans are only available for freelancer and client accounts.', 403);
+    }
+
+    return user;
   }
 
   /**
@@ -62,6 +97,8 @@ class SubscriptionService {
    * @param {string} paymentMethod - WALLET | SAFEPAY
    */
   async purchaseSubscription(userId, plan, billingCycle, paymentMethod) {
+    await this._assertSubscriberRole(userId);
+
     if (plan === PLAN_NAMES.FREE) {
       throw createAppError('Cannot purchase the free plan', 400);
     }
@@ -251,8 +288,19 @@ class SubscriptionService {
     if (transaction.type !== TRANSACTION_TYPE.SUBSCRIPTION) {
       throw createAppError('Not a subscription transaction', 400);
     }
-    if (transaction.status !== TRANSACTION_STATUS.PENDING) {
-      throw createAppError('Transaction already processed', 400);
+
+    const existingSubscription = await Subscription.findOne({
+      transactionId: transaction._id,
+    });
+    if (existingSubscription) {
+      return { subscription: existingSubscription, transaction };
+    }
+
+    if (
+      transaction.status !== TRANSACTION_STATUS.PENDING &&
+      transaction.status !== TRANSACTION_STATUS.SUCCESS
+    ) {
+      throw createAppError('Transaction is not eligible for activation', 400);
     }
 
     const plan = transaction.metadata?.get('plan');
@@ -265,7 +313,27 @@ class SubscriptionService {
       let subscription;
 
       await session.withTransaction(async () => {
-        const user = await User.findById(transaction.userId).session(session);
+        const currentTransaction = await Transaction.findById(transaction._id).session(session);
+        if (!currentTransaction) {
+          throw createAppError('Transaction not found', 404);
+        }
+
+        const alreadyActivated = await Subscription.findOne({
+          transactionId: currentTransaction._id,
+        }).session(session);
+        if (alreadyActivated) {
+          subscription = alreadyActivated;
+          return;
+        }
+
+        if (
+          currentTransaction.status !== TRANSACTION_STATUS.PENDING &&
+          currentTransaction.status !== TRANSACTION_STATUS.SUCCESS
+        ) {
+          throw createAppError('Transaction is not eligible for activation', 400);
+        }
+
+        const user = await User.findById(currentTransaction.userId).session(session);
         const previousPlan = transaction.metadata?.get('previousPlan') || user.plan || PLAN_NAMES.FREE;
         const isUpgrade = transaction.metadata?.get('isUpgrade') === 'true';
         const fullAmount = transaction.metadata?.get('fullAmount')
@@ -284,14 +352,16 @@ class SubscriptionService {
           }
         }
 
-        transaction.status = TRANSACTION_STATUS.SUCCESS;
-        transaction.completedAt = new Date();
-        await transaction.save({ session });
+        if (currentTransaction.status === TRANSACTION_STATUS.PENDING) {
+          currentTransaction.status = TRANSACTION_STATUS.SUCCESS;
+          currentTransaction.completedAt = new Date();
+          await currentTransaction.save({ session });
+        }
 
         [subscription] = await Subscription.create(
           [
             {
-              userId: transaction.userId,
+              userId: currentTransaction.userId,
               plan,
               status: SUBSCRIPTION_STATUS.ACTIVE,
               billingCycle,
@@ -299,7 +369,7 @@ class SubscriptionService {
               currentPeriodStart: periodStart,
               currentPeriodEnd: periodEnd,
               paymentMethod: 'SAFEPAY',
-              transactionId: transaction._id,
+              transactionId: currentTransaction._id,
               previousPlan,
               upgradedAt: isUpgrade ? new Date() : undefined,
               usage: { usageResetAt: periodStart },
@@ -309,12 +379,12 @@ class SubscriptionService {
         );
 
         await User.findByIdAndUpdate(
-          transaction.userId,
+          currentTransaction.userId,
           { plan, subscriptionId: subscription._id },
           { session }
         );
 
-        await PlatformWallet.addFee(transaction.amount, session);
+        await PlatformWallet.addFee(currentTransaction.amount, session);
       });
 
       // Generate invoice (outside transaction — non-critical)
@@ -349,6 +419,8 @@ class SubscriptionService {
    * Cancel subscription at period end
    */
   async cancelSubscription(userId, reason) {
+    await this._assertSubscriberRole(userId);
+
     const subscription = await Subscription.getActiveSubscription(userId);
     if (!subscription) {
       throw createAppError('No active subscription found', 404);
@@ -366,6 +438,8 @@ class SubscriptionService {
    * Undo cancellation (before period end)
    */
   async reactivateSubscription(userId) {
+    await this._assertSubscriberRole(userId);
+
     const subscription = await Subscription.findOne({
       userId,
       status: SUBSCRIPTION_STATUS.ACTIVE,
@@ -445,6 +519,8 @@ class SubscriptionService {
    * @param {string} paymentMethod - WALLET | SAFEPAY
    */
   async upgradeSubscription(userId, newPlan, billingCycle, paymentMethod) {
+    await this._assertSubscriberRole(userId);
+
     const currentSub = await Subscription.getActiveSubscription(userId);
     if (!currentSub) {
       // No active sub — just do a normal purchase
@@ -492,6 +568,8 @@ class SubscriptionService {
    * Get proration details for preview (no side effects)
    */
   async getUpgradePreview(userId, newPlan, billingCycle) {
+    await this._assertSubscriberRole(userId);
+
     const currentSub = await Subscription.getActiveSubscription(userId);
     const currentPlan = currentSub?.plan || PLAN_NAMES.FREE;
     const currentTier = PLAN_TIER_ORDER[currentPlan] ?? 0;
@@ -666,6 +744,8 @@ class SubscriptionService {
    * Schedule a downgrade (takes effect at period end)
    */
   async scheduleDowngrade(userId, newPlan) {
+    await this._assertSubscriberRole(userId);
+
     const currentSub = await Subscription.getActiveSubscription(userId);
     if (!currentSub) {
       throw createAppError('No active subscription found', 404);
@@ -688,6 +768,8 @@ class SubscriptionService {
    * Cancel a scheduled downgrade
    */
   async cancelScheduledDowngrade(userId) {
+    await this._assertSubscriberRole(userId);
+
     const currentSub = await Subscription.findOne({
       userId,
       status: SUBSCRIPTION_STATUS.ACTIVE,

@@ -9,6 +9,7 @@ import Escrow from '../../models/Escrow.js';
 import Contract from '../../models/Contract.js';
 import { asyncHandler } from '../../core/utils/index.js';
 import { createAppError } from '../../core/errors/index.js';
+import { notifyUser } from '../notifications/notification.service.js';
 
 /**
  * Payment Controller
@@ -369,6 +370,8 @@ export const getMilestoneEscrow = asyncHandler(async (req, res) => {
 // Verify pending Safepay transactions for a user (called by frontend on wallet/pricing page load)
 export const verifySafepayPending = asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const timeoutHours = Number(process.env.SAFEPAY_PENDING_TIMEOUT_HOURS || 24);
+  const staleCutoff = new Date(Date.now() - timeoutHours * 60 * 60 * 1000);
 
   // Find all pending SAFEPAY transactions (deposits + subscriptions) for this user
   const pendingTxns = await Transaction.find({
@@ -383,9 +386,53 @@ export const verifySafepayPending = asyncHandler(async (req, res) => {
   }
 
   const safepayService = (await import('../../services/paymentGateways/safepay.service.js')).default;
+  const candidateTxns = [];
   let verified = 0;
+  let timedOut = 0;
 
   for (const txn of pendingTxns) {
+    if (txn.createdAt && txn.createdAt <= staleCutoff) {
+      const failedTxn = await Transaction.findOneAndUpdate(
+        { _id: txn._id, status: 'PENDING' },
+        {
+          status: 'FAILED',
+          failureReason: `Safepay verification timeout after ${timeoutHours} hours`,
+          completedAt: new Date(),
+        },
+        { new: true }
+      );
+
+      if (failedTxn) {
+        timedOut += 1;
+        try {
+          await notifyUser(userId, {
+            type: 'payment_failed',
+            title: 'Payment Verification Timed Out',
+            message:
+              failedTxn.type === 'SUBSCRIPTION'
+                ? 'Your pending subscription payment timed out. Please retry from the pricing page if you still want to upgrade.'
+                : 'Your pending wallet deposit timed out. Please try the deposit again.',
+            link: failedTxn.type === 'SUBSCRIPTION' ? '/pricing' : '/wallet',
+          });
+        } catch (notifyErr) {
+          console.error('Safepay timeout notification error for txn', txn._id, notifyErr.message);
+        }
+      }
+
+      continue;
+    }
+
+    candidateTxns.push(txn);
+  }
+
+  if (candidateTxns.length === 0) {
+    return res.status(200).json({
+      success: true,
+      data: { verified: 0, timedOut, pending: 0 },
+    });
+  }
+
+  for (const txn of candidateTxns) {
     try {
       const result = await safepayService.verifyPaymentByTracker(
         txn.gatewayTransactionId,
@@ -419,15 +466,27 @@ export const verifySafepayPending = asyncHandler(async (req, res) => {
     }
   }
 
-  return res.status(200).json({ success: true, data: { verified, pending: pendingTxns.length - verified } });
+  return res.status(200).json({
+    success: true,
+    data: {
+      verified,
+      timedOut,
+      pending: candidateTxns.length - verified,
+    },
+  });
 });
 
-// Cancel the most recent pending Safepay deposit for a user
+// Cancel the most recent pending Safepay transaction (deposit or subscription) for a user
 export const cancelSafepayPending = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
   const cancelled = await Transaction.findOneAndUpdate(
-    { userId, paymentMethod: 'SAFEPAY', status: 'PENDING', type: 'DEPOSIT' },
+    {
+      userId,
+      paymentMethod: 'SAFEPAY',
+      status: 'PENDING',
+      type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
+    },
     { status: 'FAILED', failureReason: 'Cancelled by user', completedAt: new Date() },
     { sort: { createdAt: -1 }, new: true }
   );

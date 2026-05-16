@@ -264,7 +264,7 @@ router.get('/client/stats', authorize('client'), getJobStats);
  *       400:
  *         description: Validation error
  */
-router.post('/', authorize('client'), validateCreateJob, createJob);
+router.post('/', authorize('client'), checkPlanLimit('jobPosts'), validateCreateJob, createJob);
 
 /**
  * @swagger
