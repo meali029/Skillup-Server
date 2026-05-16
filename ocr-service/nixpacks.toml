@@ -13,4 +13,4 @@ cmds = [
 ]
 
 [start]
-cmd = 'EASYOCR_MODULE_PATH=/app/.EasyOCR uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'
+cmd = 'EASYOCR_MODULE_PATH=/app/.EasyOCR python3 -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'
