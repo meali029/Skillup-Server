@@ -160,7 +160,9 @@ export const completeProfile = async (userId, profileData) => {
 };
 
 export const loginLocal = async ({ email, password }) => {
-  const user = await User.findOne({ email }).select('+password');
+  const user = await User.findOne({ email })
+    .select('+password')
+    .populate('walletId', 'availableBalance');
   
   // Security: Same error for non-existent user to prevent email enumeration
   if (!user) {

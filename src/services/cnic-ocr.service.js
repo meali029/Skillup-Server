@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
 import https from 'https';
 import http from 'http';
 
@@ -35,6 +36,9 @@ class CNICOCRService {
       process.env.PYTHON_PATH ||
       process.env.PYTHON ||
       (process.platform === 'win32' ? 'python' : 'python3');
+    this.ocrServiceUrl = process.env.OCR_SERVICE_URL?.replace(/\/+$/, '') || null;
+    this.ocrServiceApiKey = process.env.OCR_SERVICE_API_KEY || null;
+    this.ocrServiceTimeout = parseInt(process.env.OCR_SERVICE_TIMEOUT_MS || '180000', 10);
     this.tempDir = os.tmpdir();
   }
 
@@ -167,6 +171,41 @@ class CNICOCRService {
     });
   }
 
+  async runRemoteOCR(frontInput, backInput = null) {
+    if (!this.ocrServiceUrl) {
+      throw new Error('OCR_SERVICE_URL is not configured');
+    }
+
+    const payload = {};
+    if (typeof frontInput === 'string' && frontInput.startsWith('http')) {
+      payload.frontUrl = frontInput;
+    } else if (Buffer.isBuffer(frontInput)) {
+      payload.frontImageBase64 = frontInput.toString('base64');
+    } else {
+      throw new Error('Remote OCR requires a front image URL or buffer');
+    }
+
+    if (backInput) {
+      if (typeof backInput === 'string' && backInput.startsWith('http')) {
+        payload.backUrl = backInput;
+      } else if (Buffer.isBuffer(backInput)) {
+        payload.backImageBase64 = backInput.toString('base64');
+      }
+    }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.ocrServiceApiKey) {
+      headers['x-ocr-service-key'] = this.ocrServiceApiKey;
+    }
+
+    const response = await axios.post(`${this.ocrServiceUrl}/ocr/cnic`, payload, {
+      timeout: this.ocrServiceTimeout,
+      headers,
+    });
+
+    return response.data;
+  }
+
   validateCNIC(cnic) {
     if (!cnic || !CNIC_REGEX.test(cnic)) return false;
     return VALID_FIRST_DIGITS.includes(cnic[0]);
@@ -203,33 +242,39 @@ class CNICOCRService {
 
     try {
 
-      let frontPath;
-      
-      if (typeof frontInput === 'string' && frontInput.startsWith('http')) {
-        frontPath = await this.downloadImage(frontInput);
-      } else if (Buffer.isBuffer(frontInput)) {
-        frontPath = await this.saveBufferToTemp(frontInput);
-      } else if (typeof frontInput === 'string' && fs.existsSync(frontInput)) {
-        frontPath = frontInput;
+      let ocrResult;
+
+      if (this.ocrServiceUrl) {
+        ocrResult = await this.runRemoteOCR(frontInput, backInput);
       } else {
-        throw new Error('Invalid front image');
-      }
-      tempFiles.push(frontPath);
+        let frontPath;
 
-      let backPath = null;
-      if (backInput) {
-
-        if (typeof backInput === 'string' && backInput.startsWith('http')) {
-          backPath = await this.downloadImage(backInput);
-        } else if (Buffer.isBuffer(backInput)) {
-          backPath = await this.saveBufferToTemp(backInput);
-        } else if (typeof backInput === 'string' && fs.existsSync(backInput)) {
-          backPath = backInput;
+        if (typeof frontInput === 'string' && frontInput.startsWith('http')) {
+          frontPath = await this.downloadImage(frontInput);
+        } else if (Buffer.isBuffer(frontInput)) {
+          frontPath = await this.saveBufferToTemp(frontInput);
+        } else if (typeof frontInput === 'string' && fs.existsSync(frontInput)) {
+          frontPath = frontInput;
+        } else {
+          throw new Error('Invalid front image');
         }
-        if (backPath) tempFiles.push(backPath);
-      }
+        tempFiles.push(frontPath);
 
-      const ocrResult = await this.runEasyOCR(frontPath, backPath);
+        let backPath = null;
+        if (backInput) {
+
+          if (typeof backInput === 'string' && backInput.startsWith('http')) {
+            backPath = await this.downloadImage(backInput);
+          } else if (Buffer.isBuffer(backInput)) {
+            backPath = await this.saveBufferToTemp(backInput);
+          } else if (typeof backInput === 'string' && fs.existsSync(backInput)) {
+            backPath = backInput;
+          }
+          if (backPath) tempFiles.push(backPath);
+        }
+
+        ocrResult = await this.runEasyOCR(frontPath, backPath);
+      }
 
       if (ocrResult.success) {
         result.success = true;
@@ -310,6 +355,17 @@ class CNICOCRService {
   }
 
   async checkEasyOCR() {
+    if (this.ocrServiceUrl) {
+      try {
+        const response = await axios.get(`${this.ocrServiceUrl}/health`, {
+          timeout: 10000,
+        });
+        return response.data?.status === 'ok';
+      } catch {
+        return false;
+      }
+    }
+
     return new Promise((resolve) => {
       const check = spawn(this.pythonCommand, ['-c', 'import easyocr, cv2, numpy; print("OK")']);
       let output = '';

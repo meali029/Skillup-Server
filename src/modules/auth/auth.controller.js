@@ -184,7 +184,9 @@ export const me = asyncHandler(async (req, res) => {
     throw createAppError("Not authenticated", 401);
   }
   
-  const user = await User.findById(req.user.id).select('-password');
+  const user = await User.findById(req.user.id)
+    .select('-password')
+    .populate('walletId', 'availableBalance');
   
   if (!user) {
     throw createAppError("User not found", 404);

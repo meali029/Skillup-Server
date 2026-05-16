@@ -3,6 +3,14 @@ import { calculateProfileCompleteness } from '../../profile/profile.service.js';
 export const formatUser = (user) => {
   if (!user) return null;
 
+  const subscriptionId = user.subscriptionId?._id || user.subscriptionId || null;
+  const resolvedWalletBalance =
+    typeof user.walletBalance === 'number'
+      ? user.walletBalance
+      : user.walletId && typeof user.walletId === 'object'
+        ? user.walletId.availableBalance
+        : undefined;
+
   const formattedUser = {
     id: user._id || user.id,
     name: user.name,
@@ -13,7 +21,13 @@ export const formatUser = (user) => {
     // CRITICAL: Include email verification status for auth flow
     isEmailVerified: user.isEmailVerified || false,
     provider: user.provider,
+    plan: user.plan || 'free',
+    subscriptionId: subscriptionId ? String(subscriptionId) : null,
   };
+
+  if (typeof resolvedWalletBalance === 'number') {
+    formattedUser.walletBalance = resolvedWalletBalance;
+  }
 
   // Include adminRole for admin users
   if (user.role === 'admin' && user.adminRole) {

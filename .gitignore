@@ -190,6 +190,11 @@ sessions/
 config/local.js
 config/local.json
 
+# OCR service local runtime files
+ocr-service/.venv/
+ocr-service/.EasyOCR/
+ocr-service/**/__pycache__/
+ocr-service/**/*.py[cod]
 
 .env.local
 .env
