@@ -1,25 +1,27 @@
 import base64
 import os
 import tempfile
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 from urllib.request import urlopen, Request
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .ocr_engine import CNICExtractor
 
 
 extractor: Optional[CNICExtractor] = None
+ocr_lock = threading.Lock()
 
 
 class OCRRequest(BaseModel):
-    front_url: Optional[str] = Field(default=None, alias="frontUrl")
-    back_url: Optional[str] = Field(default=None, alias="backUrl")
-    front_image_base64: Optional[str] = Field(default=None, alias="frontImageBase64")
-    back_image_base64: Optional[str] = Field(default=None, alias="backImageBase64")
+    frontUrl: Optional[str] = None
+    backUrl: Optional[str] = None
+    frontImageBase64: Optional[str] = None
+    backImageBase64: Optional[str] = None
 
 
 def _write_url_to_temp(url: str) -> str:
@@ -70,6 +72,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Skillup OCR Service", version="1.0.0", lifespan=lifespan)
 
 
+@app.get("/")
+def root():
+    return {"service": "skillup-ocr-service", "status": "ok", "engineReady": extractor is not None}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "engineReady": extractor is not None}
@@ -90,11 +97,18 @@ def extract_cnic(payload: OCRRequest, x_ocr_service_key: Optional[str] = Header(
 
     temp_files = []
     try:
-        front_path = _input_to_temp(payload.front_url, payload.front_image_base64, "front")
-        back_path = _input_to_temp(payload.back_url, payload.back_image_base64, "back")
+        front_path = _input_to_temp(payload.frontUrl, payload.frontImageBase64, "front")
+        back_path = _input_to_temp(payload.backUrl, payload.backImageBase64, "back")
         temp_files.extend([p for p in [front_path, back_path] if p])
 
-        result = extractor.process(front_path, back_path)
+        if not ocr_lock.acquire(blocking=False):
+            raise HTTPException(status_code=429, detail="OCR service is busy, please retry shortly")
+
+        try:
+            result = extractor.process(front_path, back_path)
+        finally:
+            ocr_lock.release()
+
         result["extractionMethod"] = result.get("method") or "easyocr-service"
         return result
     except HTTPException:

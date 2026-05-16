@@ -32,6 +32,7 @@ except ImportError as e:
 CNIC_PATTERN = re.compile(r'(\d{5})[-.\s]?(\d{7})[-.\s]?(\d)')
 DATE_PATTERN = re.compile(r'(\d{1,2})[./-](\d{1,2})[./-](\d{4})')
 VALID_PROVINCE_CODES = ['1', '2', '3', '4', '5', '6', '7', '8']
+MAX_OCR_IMAGE_DIMENSION = int(os.environ.get('MAX_OCR_IMAGE_DIMENSION', '900'))
 
 # Global reader cache for faster subsequent calls
 _reader_cache = None
@@ -54,6 +55,22 @@ def get_reader():
 class CNICExtractor:
     def __init__(self):
         self.reader = get_reader()
+
+    def resize_for_ocr(self, img):
+        """Limit image size before OCR to reduce memory usage on small containers."""
+        h, w = img.shape[:2]
+        max_dim = max(h, w)
+        if max_dim <= MAX_OCR_IMAGE_DIMENSION:
+            return img
+
+        scale = MAX_OCR_IMAGE_DIMENSION / max_dim
+        resized = cv2.resize(
+            img,
+            (int(w * scale), int(h * scale)),
+            interpolation=cv2.INTER_AREA
+        )
+        print(f"  Resized for OCR: {img.shape} -> {resized.shape}", file=sys.stderr)
+        return resized
     
     def quick_orientation_check(self, img):
         """Quick check to determine if image needs rotation based on aspect ratio"""
@@ -426,6 +443,7 @@ class CNICExtractor:
             if front_img is None:
                 result['errors'].append(f"Cannot read front image: {front_path}")
                 return result
+            front_img = self.resize_for_ocr(front_img)
             
             print(f"  Original size: {front_img.shape}", file=sys.stderr)
             
@@ -460,6 +478,7 @@ class CNICExtractor:
                 print(f"\n=== Processing BACK: {back_path} ===", file=sys.stderr)
                 back_img = cv2.imread(back_path)
                 if back_img is not None:
+                    back_img = self.resize_for_ocr(back_img)
                     print(f"  Original size: {back_img.shape}", file=sys.stderr)
                     best_img, ocr_results, _ = self.find_best_rotation(back_img)
                     texts = [r[1] for r in ocr_results]
