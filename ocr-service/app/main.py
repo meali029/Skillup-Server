@@ -15,6 +15,7 @@ from .ocr_engine import CNICExtractor
 
 extractor: Optional[CNICExtractor] = None
 ocr_lock = threading.Lock()
+extractor_lock = threading.Lock()
 
 
 class OCRRequest(BaseModel):
@@ -58,14 +59,12 @@ def _input_to_temp(url: Optional[str], image_base64: Optional[str], label: str) 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global extractor
     os.environ.setdefault("EASYOCR_MODULE_PATH", str(Path.cwd() / ".EasyOCR"))
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-    extractor = CNICExtractor()
     yield
 
 
@@ -88,12 +87,20 @@ def _verify_api_key(api_key: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="Invalid OCR service API key")
 
 
+def _get_extractor() -> CNICExtractor:
+    global extractor
+    if extractor is not None:
+        return extractor
+
+    with extractor_lock:
+        if extractor is None:
+            extractor = CNICExtractor()
+        return extractor
+
+
 @app.post("/ocr/cnic")
 def extract_cnic(payload: OCRRequest, x_ocr_service_key: Optional[str] = Header(default=None)):
     _verify_api_key(x_ocr_service_key)
-
-    if extractor is None:
-        raise HTTPException(status_code=503, detail="OCR engine is not ready")
 
     temp_files = []
     try:
@@ -105,7 +112,7 @@ def extract_cnic(payload: OCRRequest, x_ocr_service_key: Optional[str] = Header(
             raise HTTPException(status_code=429, detail="OCR service is busy, please retry shortly")
 
         try:
-            result = extractor.process(front_path, back_path)
+            result = _get_extractor().process(front_path, back_path)
         finally:
             ocr_lock.release()
 
