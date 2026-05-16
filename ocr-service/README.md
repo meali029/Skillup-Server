@@ -19,6 +19,12 @@ OCR_SERVICE_URL=https://your-ocr-service.up.railway.app
 OCR_SERVICE_API_KEY=use-a-long-random-secret
 ```
 
+Local run:
+
+```bash
+OCR_SERVICE_API_KEY=local-ocr-secret-123 EASYOCR_MODULE_PATH=.EasyOCR python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
 Set the same secret on the OCR service:
 
 ```txt
