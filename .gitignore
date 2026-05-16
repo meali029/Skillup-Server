@@ -184,7 +184,7 @@ dump/
 dump.rdb
 
 # Session store
-sessions/
+/sessions/
 
 # Local configuration overrides
 config/local.js
