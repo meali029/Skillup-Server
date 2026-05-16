@@ -5,6 +5,9 @@ import {
   login, 
   logout, 
   me, 
+  getMySessions,
+  revokeMySession,
+  revokeMyOtherSessions,
   googleCallback, 
   completeProfile, 
   requestPasswordResetController, 
@@ -217,6 +220,10 @@ function createAuthRoutes() {
    *         description: Not authenticated
    */
   router.get("/me", authenticate, me);
+
+  router.get("/sessions", authenticate, getMySessions);
+  router.delete("/sessions/others", authenticate, revokeMyOtherSessions);
+  router.delete("/sessions/:sessionId", authenticate, revokeMySession);
 
   /**
    * @swagger
@@ -675,4 +682,3 @@ function createAuthRoutes() {
 }
 
 export default createAuthRoutes;
-

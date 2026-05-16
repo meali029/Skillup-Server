@@ -44,6 +44,8 @@ const auditLogSchema = new mongoose.Schema(
         'ESCROW_FROZEN',
         'DISPUTE_RESOLVED',
         'PAYMENT_MODE_UPDATED',
+        'SESSION_REVOKED',
+        'SESSIONS_REVOKED',
       ],
       index: true,
     },

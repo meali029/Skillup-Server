@@ -15,12 +15,23 @@ import { TokenService } from "../shared/services/index.js";
 import User from "../../models/User.js";
 import { createAuditLog } from "../../core/utils/auditLogger.js";
 import { notifyUser } from '../notifications/notification.service.js';
+import {
+  createSessionBackedToken,
+  extractTokenFromRequest,
+  listUserSessions,
+  refreshSessionToken,
+  revokeOtherSessions as revokeOtherUserSessions,
+  revokeSession,
+} from "./auth-session.service.js";
+
+const isAdminIdentity = (user) => user?.role === 'admin' || user?.role === 'super_admin';
 
 export const register = asyncHandler(async (req, res) => {
   // Extract all possible registration fields from validatedData or body
   const registrationData = req.validatedData || req.body;
 
-  const { user, token, requiresEmailVerification } = await registerLocal(registrationData);
+  const { user, requiresEmailVerification } = await registerLocal(registrationData);
+  const { token } = await createSessionBackedToken(user, req);
   
   res.cookie("token", token, TokenService.getCookieOptions());
   
@@ -41,12 +52,13 @@ export const register = asyncHandler(async (req, res) => {
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.validatedData;
   
-  const { user, token } = await loginLocal({ email, password });
+  const { user } = await loginLocal({ email, password });
+  const { token } = await createSessionBackedToken(user, req);
   
   res.cookie("token", token, TokenService.getCookieOptions());
   
   // Log admin login
-  if (user.role === 'admin') {
+  if (isAdminIdentity(user)) {
     await createAuditLog({
       adminId: user._id,
       action: 'ADMIN_LOGIN',
@@ -90,7 +102,7 @@ export const googleCallback = asyncHandler(async (req, res) => {
     return res.redirect(`${clientUrl}/login?error=${encodeURIComponent(errorMessage)}`);
   }
   
-  const token = TokenService.generateToken(req.user);
+  const { token } = await createSessionBackedToken(req.user, req);
   res.cookie("token", token, TokenService.getCookieOptions());
   
   const isProfileComplete = req.user.isProfileComplete && req.user.role;
@@ -143,7 +155,18 @@ export const completeProfile = asyncHandler(async (req, res) => {
   const verifiedUser = await User.findById(userId).select('-password');
 
   // Generate new token with updated user data
-  const token = TokenService.generateToken(verifiedUser);
+  const token = TokenService.generateToken(verifiedUser, { sessionId: req.authSessionId });
+
+  if (req.authSessionId) {
+    await refreshSessionToken({
+      sessionId: req.authSessionId,
+      user: verifiedUser,
+      token,
+      req,
+    });
+  }
+
+  res.cookie("token", token, TokenService.getCookieOptions());
 
   successResponse(
     res,
@@ -158,10 +181,28 @@ export const completeProfile = asyncHandler(async (req, res) => {
 });
 
 export const logout = asyncHandler(async (req, res) => {
+  const token = extractTokenFromRequest(req);
+  let decoded = null;
+
+  if (token) {
+    try {
+      decoded = TokenService.verifyToken(token);
+      if (decoded?.sid) {
+        await revokeSession({
+          sessionId: decoded.sid,
+          userId: decoded.id,
+          revokedBy: decoded.id,
+        });
+      }
+    } catch (error) {
+      decoded = null;
+    }
+  }
+
   // Log admin logout
-  if (req.user && req.user.role === 'admin') {
+  if (isAdminIdentity(req.user) || decoded?.role === 'admin' || decoded?.role === 'super_admin') {
     await createAuditLog({
-      adminId: req.user.id,
+      adminId: req.user?.id || decoded?.id,
       action: 'ADMIN_LOGOUT',
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('user-agent'),
@@ -197,6 +238,80 @@ export const me = asyncHandler(async (req, res) => {
     { user: formatUser(user) },
     "User retrieved successfully"
   );
+});
+
+export const getMySessions = asyncHandler(async (req, res) => {
+  const sessions = await listUserSessions({
+    userId: req.user.id,
+    currentSessionId: req.authSessionId,
+  });
+
+  successResponse(res, { sessions }, "Sessions retrieved successfully");
+});
+
+export const revokeMySession = asyncHandler(async (req, res) => {
+  const { sessionId } = req.params;
+
+  if (req.authSessionId && sessionId === req.authSessionId) {
+    throw createAppError("Use logout to revoke your current session", 400);
+  }
+
+  const session = await revokeSession({
+    sessionId,
+    userId: req.user.id,
+    revokedBy: req.user.id,
+  });
+
+  if (!session) {
+    throw createAppError("Session not found or already inactive", 404);
+  }
+
+  if (isAdminIdentity(req.user)) {
+    await createAuditLog({
+      adminId: req.user.id,
+      action: 'SESSION_REVOKED',
+      targetType: 'User',
+      targetId: req.user.id,
+      targetName: req.user.email,
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        revokedSessionId: sessionId,
+        selfService: true,
+        requestIp: req.ip,
+        requestUserAgent: req.get('user-agent'),
+      },
+    });
+  }
+
+  successResponse(res, { sessionId }, "Session revoked successfully");
+});
+
+export const revokeMyOtherSessions = asyncHandler(async (req, res) => {
+  const revokedCount = await revokeOtherUserSessions({
+    userId: req.user.id,
+    currentSessionId: req.authSessionId,
+    revokedBy: req.user.id,
+  });
+
+  if (isAdminIdentity(req.user)) {
+    await createAuditLog({
+      adminId: req.user.id,
+      action: 'SESSIONS_REVOKED',
+      targetType: 'User',
+      targetId: req.user.id,
+      targetName: req.user.email,
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get('user-agent'),
+      details: {
+        revokedCount,
+        preservedSessionId: req.authSessionId || null,
+        selfService: true,
+      },
+    });
+  }
+
+  successResponse(res, { revokedCount }, "Other sessions revoked successfully");
 });
 
 
@@ -249,7 +364,7 @@ export const verifyEmailController = asyncHandler(async (req, res) => {
   const result = await verifyEmailToken(token);
   
   // Generate JWT token for auto-login
-  const jwtToken = TokenService.generateToken(result.user);
+  const { token: jwtToken } = await createSessionBackedToken(result.user, req);
   
   // Set cookie for auto-login
   res.cookie("token", jwtToken, TokenService.getCookieOptions());

@@ -16,8 +16,9 @@ import WithdrawalRequest from "./WithdrawalRequest.js";
 import PlatformWallet from "./PlatformWallet.js";
 import PlatformWithdrawal from "./PlatformWithdrawal.js";
 import Subscription from "./Subscription.js";
+import UserSession from "./UserSession.js";
 
-export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest, PlatformWallet, PlatformWithdrawal, Subscription };
+export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest, PlatformWallet, PlatformWithdrawal, Subscription, UserSession };
 
 export default {
   User,
@@ -35,4 +36,5 @@ export default {
   PlatformWallet,
   PlatformWithdrawal,
   Subscription,
+  UserSession,
 };

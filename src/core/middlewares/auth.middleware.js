@@ -1,7 +1,11 @@
-import jwt from "jsonwebtoken";
 import User from "../../models/User.js";
 import { AppError, createAppError } from "../errors/index.js";
 import { asyncHandler } from "../utils/index.js";
+import { TokenService } from "../../modules/shared/services/index.js";
+import {
+  validateSession,
+  touchSession,
+} from "../../modules/auth/auth-session.service.js";
 
 const authenticate = asyncHandler(async (req, res, next) => {
   const token = req.cookies?.token || 
@@ -12,7 +16,7 @@ const authenticate = asyncHandler(async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = TokenService.verifyToken(token);
     
     // Debug: log decoded token and id lookup
     // Attempt to look up the user in the database by ID. If the DB is unavailable
@@ -42,6 +46,24 @@ const authenticate = asyncHandler(async (req, res, next) => {
       throw createAppError("User no longer exists", 401);
     }
 
+    if (decoded.sid) {
+      const session = await validateSession({
+        userId: decoded.id,
+        sessionId: decoded.sid,
+        token,
+      });
+
+      if (!session) {
+        throw createAppError("This session is no longer active. Please log in again", 401);
+      }
+
+      req.authSessionId = decoded.sid;
+      req.authSession = session;
+    }
+
+    req.authToken = token;
+    req.authTokenPayload = decoded;
+
     // Check if user is banned or suspended
     if (user.isBanned) {
       throw createAppError(
@@ -66,6 +88,10 @@ const authenticate = asyncHandler(async (req, res, next) => {
       isProfileComplete: user.isProfileComplete,
       plan: user.plan || 'free',
     };
+
+    if (req.authSessionId) {
+      touchSession(req.authSessionId).catch(() => {});
+    }
 
     next();
   } catch (error) {

@@ -43,6 +43,7 @@ import userManagementRoutes from "./modules/admin/users/user-management.routes.j
 import jobCheckerRoutes from "./modules/admin/jobs/job-checker.routes.js";
 import analyticsRoutes from "./modules/admin/analytics/analytics.routes.js";
 import auditLogRoutes from "./modules/admin/audit-logs/audit-logs.routes.js";
+import adminSessionsRoutes from "./modules/admin/sessions/admin-sessions.routes.js";
 import permissionsRoutes from "./modules/admin/permissions/permissions.routes.js";
 import adminSettingsRoutes from "./modules/admin/admin.settings.routes.js";
 import healthRoutes from "./modules/admin/health/health.routes.js";
@@ -347,6 +348,7 @@ app.use("/api/admin/users", userManagementRoutes);
 app.use("/api/admin/jobs", jobCheckerRoutes);
 app.use("/api/admin/analytics", analyticsRoutes);
 app.use("/api/admin/audit-logs", auditLogRoutes);
+app.use("/api/admin/sessions", adminSessionsRoutes);
 app.use("/api/admin/permissions", permissionsRoutes);
 app.use("/api/admin/settings", adminSettingsRoutes);
 app.use("/api/admin/health", healthRoutes);
@@ -363,4 +365,3 @@ app.all("*", (req, res, next) => {
 app.use(errorHandler);
 
 export default app;
-
