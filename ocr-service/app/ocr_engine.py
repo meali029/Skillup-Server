@@ -14,11 +14,16 @@ from datetime import datetime
 # Suppress warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ.setdefault('EASYOCR_MODULE_PATH', os.path.join(os.path.expanduser('~'), '.EasyOCR'))
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+os.environ.setdefault('MKL_NUM_THREADS', '1')
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '1')
 
 try:
     import easyocr
     import cv2
     import numpy as np
+    import torch
 except ImportError as e:
     print(json.dumps({
         "success": False,
@@ -32,7 +37,14 @@ except ImportError as e:
 CNIC_PATTERN = re.compile(r'(\d{5})[-.\s]?(\d{7})[-.\s]?(\d)')
 DATE_PATTERN = re.compile(r'(\d{1,2})[./-](\d{1,2})[./-](\d{4})')
 VALID_PROVINCE_CODES = ['1', '2', '3', '4', '5', '6', '7', '8']
-MAX_OCR_IMAGE_DIMENSION = int(os.environ.get('MAX_OCR_IMAGE_DIMENSION', '900'))
+MAX_OCR_IMAGE_DIMENSION = int(os.environ.get('MAX_OCR_IMAGE_DIMENSION', '640'))
+EASYOCR_CANVAS_SIZE = int(os.environ.get('EASYOCR_CANVAS_SIZE', '768'))
+
+try:
+    torch.set_num_threads(int(os.environ.get('OCR_NUM_THREADS', '1')))
+    torch.set_num_interop_threads(1)
+except Exception:
+    pass
 
 # Global reader cache for faster subsequent calls
 _reader_cache = None
@@ -96,18 +108,18 @@ class CNICExtractor:
         if h > w:
             # Portrait - try 90° first
             rotations = [
-                (90, cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)),
-                (270, cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)),
-                (0, img),
-                (180, cv2.rotate(img, cv2.ROTATE_180)),
+                (90, cv2.ROTATE_90_CLOCKWISE),
+                (270, cv2.ROTATE_90_COUNTERCLOCKWISE),
+                (0, None),
+                (180, cv2.ROTATE_180),
             ]
         else:
             # Landscape - try original first
             rotations = [
-                (0, img),
-                (180, cv2.rotate(img, cv2.ROTATE_180)),
-                (90, cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)),
-                (270, cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)),
+                (0, None),
+                (180, cv2.ROTATE_180),
+                (90, cv2.ROTATE_90_CLOCKWISE),
+                (270, cv2.ROTATE_90_COUNTERCLOCKWISE),
             ]
         
         best_angle = 0
@@ -115,8 +127,9 @@ class CNICExtractor:
         best_score = 0
         best_results = []
         
-        for angle, rotated_img in rotations:
+        for angle, rotation_code in rotations:
             print(f"  Checking rotation: {angle}°...", file=sys.stderr)
+            rotated_img = img if rotation_code is None else cv2.rotate(img, rotation_code)
             
             # Run OCR
             try:
@@ -125,6 +138,10 @@ class CNICExtractor:
                     detail=1,
                     paragraph=False,
                     min_size=10,
+                    canvas_size=EASYOCR_CANVAS_SIZE,
+                    mag_ratio=1.0,
+                    batch_size=1,
+                    workers=0,
                     text_threshold=0.5,
                     low_text=0.3
                 )
@@ -167,6 +184,9 @@ class CNICExtractor:
             except Exception as e:
                 print(f"    Error: {e}", file=sys.stderr)
                 continue
+            finally:
+                if rotation_code is not None:
+                    del rotated_img
         
         print(f"  Best rotation: {best_angle}°", file=sys.stderr)
         return best_img, best_results, best_angle
