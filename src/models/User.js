@@ -170,6 +170,21 @@ const userSchema = new mongoose.Schema({
   // Free-tier AI usage tracking (7-day rolling window)
   aiRequestsUsed: { type: Number, default: 0, min: 0 },
   aiRequestsResetAt: { type: Date },
+
+  // User-controlled workspace settings
+  notificationSettings: {
+    pushNotifications: { type: Boolean, default: true },
+    messageNotifications: { type: Boolean, default: true },
+    proposalNotifications: { type: Boolean, default: true },
+    contractNotifications: { type: Boolean, default: true },
+    paymentNotifications: { type: Boolean, default: true },
+    accountNotifications: { type: Boolean, default: true },
+    jobRecommendations: { type: Boolean, default: true },
+  },
+  preferences: {
+    theme: { type: String, enum: ['system', 'light', 'dark'], default: 'system' },
+    allowDirectMessages: { type: Boolean, default: true },
+  },
   
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

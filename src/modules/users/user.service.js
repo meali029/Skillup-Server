@@ -1,5 +1,36 @@
 import User from '../../models/User.js';
-import { AppError, createAppError } from '../../core/errors/index.js';
+import { createAppError } from '../../core/errors/index.js';
+
+const notificationDefaults = {
+  pushNotifications: true,
+  messageNotifications: true,
+  proposalNotifications: true,
+  contractNotifications: true,
+  paymentNotifications: true,
+  accountNotifications: true,
+  jobRecommendations: true,
+};
+
+const preferenceDefaults = {
+  theme: 'system',
+  allowDirectMessages: true,
+};
+
+const pickBooleanSettings = (input, defaults) => {
+  return Object.keys(defaults).reduce((settings, key) => {
+    settings[key] = typeof input?.[key] === 'boolean' ? input[key] : defaults[key];
+    return settings;
+  }, {});
+};
+
+const pickPreferences = (input = {}) => {
+  const next = { ...preferenceDefaults };
+
+  if (['system', 'light', 'dark'].includes(input.theme)) next.theme = input.theme;
+  if (typeof input.allowDirectMessages === 'boolean') next.allowDirectMessages = input.allowDirectMessages;
+
+  return next;
+};
 
 /**
  * Get user by ID (public info)
@@ -117,5 +148,90 @@ export const getFreelancers = async (filters = {}) => {
       total,
       pages: Math.ceil(total / limit)
     }
+  };
+};
+
+export const updatePassword = async (userId, { currentPassword, newPassword }) => {
+  const user = await User.findById(userId).select('+password');
+
+  if (!user) {
+    throw createAppError('User not found', 404);
+  }
+
+  if (user.provider === 'google' || !user.password) {
+    throw createAppError('This account uses Google sign-in. Use password reset to create a local password.', 400);
+  }
+
+  const isPasswordValid = await user.comparePassword(currentPassword);
+  if (!isPasswordValid) {
+    throw createAppError('Current password is incorrect', 400);
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  return true;
+};
+
+export const getNotificationSettings = async (userId) => {
+  const user = await User.findById(userId).select('notificationSettings').lean();
+
+  if (!user) {
+    throw createAppError('User not found', 404);
+  }
+
+  return pickBooleanSettings(user.notificationSettings || {}, notificationDefaults);
+};
+
+export const updateNotificationSettings = async (userId, settings = {}) => {
+  const currentSettings = await getNotificationSettings(userId);
+  const notificationSettings = pickBooleanSettings(
+    { ...currentSettings, ...settings },
+    notificationDefaults
+  );
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: { notificationSettings } },
+    { new: true, runValidators: true }
+  ).select('notificationSettings');
+
+  if (!user) {
+    throw createAppError('User not found', 404);
+  }
+
+  return {
+    ...notificationDefaults,
+    ...(user.notificationSettings?.toObject?.() || user.notificationSettings || {}),
+  };
+};
+
+export const getPreferences = async (userId) => {
+  const user = await User.findById(userId).select('preferences').lean();
+
+  if (!user) {
+    throw createAppError('User not found', 404);
+  }
+
+  return pickPreferences(user.preferences || {});
+};
+
+export const updatePreferences = async (userId, preferences = {}) => {
+  const currentPreferences = await getPreferences(userId);
+  const nextPreferences = pickPreferences({ ...currentPreferences, ...preferences });
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: { preferences: nextPreferences } },
+    { new: true, runValidators: true }
+  ).select('preferences');
+
+  if (!user) {
+    throw createAppError('User not found', 404);
+  }
+
+  return {
+    ...preferenceDefaults,
+    ...(user.preferences?.toObject?.() || user.preferences || {}),
   };
 };

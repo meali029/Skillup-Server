@@ -49,3 +49,53 @@ export const getFreelancers = asyncHandler(async (req, res) => {
     result.pagination.total
   );
 });
+
+/**
+ * @desc    Update current user's password
+ * @route   PUT /api/users/profile/password
+ * @access  Private
+ */
+export const updatePassword = asyncHandler(async (req, res) => {
+  await userService.updatePassword(req.user.id, req.body);
+  successResponse(res, null, 'Password updated successfully');
+});
+
+/**
+ * @desc    Get current user's notification settings
+ * @route   GET /api/users/settings/notifications
+ * @access  Private
+ */
+export const getNotificationSettings = asyncHandler(async (req, res) => {
+  const notificationSettings = await userService.getNotificationSettings(req.user.id);
+  successResponse(res, { notificationSettings }, 'Notification settings retrieved successfully');
+});
+
+/**
+ * @desc    Update current user's notification settings
+ * @route   PUT /api/users/settings/notifications
+ * @access  Private
+ */
+export const updateNotificationSettings = asyncHandler(async (req, res) => {
+  const notificationSettings = await userService.updateNotificationSettings(req.user.id, req.body);
+  successResponse(res, { notificationSettings }, 'Notification settings updated successfully');
+});
+
+/**
+ * @desc    Get current user's workspace preferences
+ * @route   GET /api/users/preferences
+ * @access  Private
+ */
+export const getPreferences = asyncHandler(async (req, res) => {
+  const preferences = await userService.getPreferences(req.user.id);
+  successResponse(res, { preferences }, 'Preferences retrieved successfully');
+});
+
+/**
+ * @desc    Update current user's workspace preferences
+ * @route   PUT /api/users/preferences
+ * @access  Private
+ */
+export const updatePreferences = asyncHandler(async (req, res) => {
+  const preferences = await userService.updatePreferences(req.user.id, req.body);
+  successResponse(res, { preferences }, 'Preferences updated successfully');
+});
