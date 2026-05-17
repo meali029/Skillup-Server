@@ -1,7 +1,24 @@
 import express from 'express';
-import { getFreelancerById, getUserById, getFreelancers } from './user.controller.js';
+import {
+  getFreelancerById,
+  getUserById,
+  getFreelancers,
+  getNotificationSettings,
+  getPreferences,
+  updateNotificationSettings,
+  updatePassword,
+  updatePreferences,
+} from './user.controller.js';
+import { authenticate } from '../../core/middlewares/index.js';
+import { validateChangePassword } from '../auth/auth.validation.js';
 
 const router = express.Router();
+
+router.put('/profile/password', authenticate, validateChangePassword, updatePassword);
+router.get('/settings/notifications', authenticate, getNotificationSettings);
+router.put('/settings/notifications', authenticate, updateNotificationSettings);
+router.get('/preferences', authenticate, getPreferences);
+router.put('/preferences', authenticate, updatePreferences);
 
 /**
  * @swagger
@@ -30,8 +47,6 @@ const router = express.Router();
  *       404:
  *         description: User not found
  */
-router.get('/:id', getUserById);
-
 /**
  * @swagger
  * /api/users/freelancers:
@@ -92,5 +107,7 @@ router.get('/freelancers', getFreelancers);
  *         description: Freelancer not found
  */
 router.get('/freelancers/:id', getFreelancerById);
+
+router.get('/:id', getUserById);
 
 export default router;

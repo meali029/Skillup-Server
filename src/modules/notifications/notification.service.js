@@ -2,8 +2,61 @@ import Notification from '../../models/Notification.js';
 import User from '../../models/User.js';
 import { emitUserNotification, emitToRoom } from '../../sockets/index.js';
 
+const notificationDefaults = {
+  pushNotifications: true,
+  messageNotifications: true,
+  proposalNotifications: true,
+  contractNotifications: true,
+  paymentNotifications: true,
+  accountNotifications: true,
+  jobRecommendations: true,
+};
+
+const getNotificationCategory = (type = '') => {
+  const normalizedType = String(type).toLowerCase();
+
+  if (normalizedType.includes('message')) return 'messageNotifications';
+  if (normalizedType.includes('proposal')) return 'proposalNotifications';
+  if (normalizedType.includes('job')) return 'jobRecommendations';
+  if (normalizedType.includes('contract') || normalizedType.includes('milestone')) return 'contractNotifications';
+  if (
+    normalizedType.includes('payment') ||
+    normalizedType.includes('deposit') ||
+    normalizedType.includes('refund') ||
+    normalizedType.includes('reversal') ||
+    normalizedType.includes('subscription') ||
+    normalizedType.includes('renewal') ||
+    normalizedType.includes('usage') ||
+    normalizedType.includes('grace')
+  ) {
+    return 'paymentNotifications';
+  }
+
+  return 'accountNotifications';
+};
+
+const shouldNotifyUser = async (userId, type) => {
+  const user = await User.findById(userId).select('notificationSettings').lean();
+  if (!user) return false;
+
+  const settings = {
+    ...notificationDefaults,
+    ...(user.notificationSettings || {}),
+  };
+
+  if (settings.pushNotifications === false) return false;
+
+  const category = getNotificationCategory(type);
+  return settings[category] !== false;
+};
+
 export const notifyUser = async (userId, payload) => {
   try {
+    const canNotify = await shouldNotifyUser(userId, payload?.type);
+    if (!canNotify) {
+      return null;
+    }
+
     const doc = await Notification.create({ userId, ...payload });
 
     const payloadToEmit = {
@@ -23,6 +76,25 @@ export const notifyUser = async (userId, payload) => {
     console.error('[Notification] Failed to notify user', error);
     throw error;
   }
+};
+
+export const createNotification = async (payload = {}) => {
+  const userId = payload.userId || payload.user;
+  if (!userId) {
+    throw new Error('Notification userId is required');
+  }
+
+  return notifyUser(userId, {
+    type: payload.type,
+    title: payload.title,
+    message: payload.message,
+    link: payload.link,
+    data: {
+      ...(payload.data || {}),
+      ...(payload.relatedJob ? { jobId: payload.relatedJob } : {}),
+      ...(payload.relatedProposal ? { proposalId: payload.relatedProposal } : {}),
+    },
+  });
 };
 
 export const notifyAdmins = async (payload) => {
@@ -86,6 +158,7 @@ export const deleteAllNotifications = async (userId) => {
 
 export default {
   notifyUser,
+  createNotification,
   notifyAdmins,
   listMyNotifications,
   markRead,

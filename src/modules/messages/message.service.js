@@ -24,6 +24,11 @@ class MessageService {
     if (proposalId) context.proposal = proposalId;
     if (contractId) context.contract = contractId;
 
+    const hasWorkContext = Boolean(jobId || proposalId || contractId);
+    if (!hasWorkContext && participant.preferences?.allowDirectMessages === false) {
+      throw AppError('This user is not accepting direct messages right now', 403);
+    }
+
     const conversation = await Conversation.findOrCreate(
       [userId, participantId],
       context
