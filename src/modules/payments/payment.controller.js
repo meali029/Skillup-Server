@@ -65,6 +65,25 @@ async function autoFundEscrowAndActivateContract(transaction, logPrefix = 'Payme
   }
 }
 
+function getClientUrl() {
+  return process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
+}
+
+async function getSafepaySuccessRedirectPath(transaction) {
+  if (transaction.type === 'SUBSCRIPTION') {
+    return '/pricing?payment=success';
+  }
+
+  if (transaction.escrowId) {
+    const escrow = await Escrow.findById(transaction.escrowId).select('contractId').lean();
+    if (escrow?.contractId) {
+      return `/contracts/${escrow.contractId}?payment=success&transactionId=${transaction._id}`;
+    }
+  }
+
+  return `/wallet?payment=success&transactionId=${transaction._id}`;
+}
+
 // Initialize deposit
 export const initializeDeposit = asyncHandler(async (req, res) => {
   let { amount, paymentMethod, customerData } = req.body;
@@ -505,11 +524,12 @@ export const handleSafepayWebhook = asyncHandler(async (req, res) => {
 
 // Handle Safepay callback redirect (GET - user returns from Safepay checkout)
 export const handleSafepayCallback = asyncHandler(async (req, res) => {
-  const tracker = req.query.tracker || req.query.ref || req.query.session || req.query.token;
-  const orderId = req.query.order_id || req.query.orderId;
-  const referenceCode = req.query.reference_code || req.query.reference;
-  const sig = req.query.sig || req.query.signature;
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const payload = { ...req.query, ...req.body };
+  const tracker = payload.tracker || payload.beacon || payload.ref || payload.session || payload.token;
+  const orderId = payload.order_id || payload.orderId;
+  const referenceCode = payload.reference_code || payload.reference;
+  const sig = payload.sig || payload.signature;
+  const clientUrl = getClientUrl();
 
   if (!tracker && !orderId) {
     return res.redirect(`${clientUrl}/wallet?payment=error&message=Missing+payment+reference`);
@@ -542,7 +562,7 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
       type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
     });
     if (processed && processed.status === 'SUCCESS') {
-      const redirectPath = processed.type === 'SUBSCRIPTION' ? '/pricing?payment=success' : `/wallet?payment=success&transactionId=${processed._id}`;
+      const redirectPath = await getSafepaySuccessRedirectPath(processed);
       return res.redirect(`${clientUrl}${redirectPath}`);
     }
     return res.redirect(`${clientUrl}/wallet?payment=error&message=Transaction+not+found`);
@@ -575,10 +595,11 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
         // Auto-fund escrow if this deposit is linked to one
         await autoFundEscrowAndActivateContract(updated, 'Safepay callback');
 
-        return res.redirect(`${clientUrl}/wallet?payment=success&transactionId=${updated._id}`);
+        const redirectPath = await getSafepaySuccessRedirectPath(updated);
+        return res.redirect(`${clientUrl}${redirectPath}`);
       } else {
         // Already processed by webhook
-        const redirectPath = transaction.type === 'SUBSCRIPTION' ? '/pricing?payment=success' : `/wallet?payment=success&transactionId=${transaction._id}`;
+        const redirectPath = await getSafepaySuccessRedirectPath(transaction);
         return res.redirect(`${clientUrl}${redirectPath}`);
       }
     } else {

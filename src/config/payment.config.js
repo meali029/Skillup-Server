@@ -90,11 +90,11 @@ export const EASYPAISA_CONFIG = {
 export const SAFEPAY_CONFIG = {
   sandbox: {
     baseUrl: 'https://sandbox.api.getsafepay.com',
-    checkoutUrl: 'https://sandbox.api.getsafepay.com/checkout',
+    checkoutUrl: 'https://sandbox.api.getsafepay.com/checkout/pay',
   },
   production: {
     baseUrl: 'https://api.getsafepay.com',
-    checkoutUrl: 'https://api.getsafepay.com/checkout',
+    checkoutUrl: 'https://getsafepay.com/checkout/pay',
   },
   currency: 'PKR',
 };

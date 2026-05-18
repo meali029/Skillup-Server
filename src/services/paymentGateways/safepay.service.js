@@ -54,7 +54,8 @@ class SafepayService {
     const baseUrl = this.getBaseUrl();
     const callbackUrl = getEnv('SAFEPAY_CALLBACK_URL') ||
       `${getEnv('SERVER_URL') || getEnv('API_URL') || 'http://localhost:5000'}/api/payments/callback/safepay`;
-    const cancelUrl = `${getEnv('CLIENT_URL') || 'http://localhost:5173'}/wallet?payment=cancelled`;
+    const clientUrl = getEnv('FRONTEND_URL') || getEnv('CLIENT_URL') || 'http://localhost:5173';
+    const cancelUrl = `${clientUrl}/wallet?payment=cancelled`;
     const environment = creds.sandbox ? 'sandbox' : 'production';
 
     try {
@@ -90,7 +91,9 @@ class SafepayService {
         beacon: tracker,
         entry: 'plain',
         env: environment,
+        order_id: orderId,
         source: 'custom',
+        webhooks: 'true',
         redirect_url: callbackUrl,
         cancel_url: cancelUrl,
       });

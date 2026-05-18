@@ -38,6 +38,7 @@ router.post('/webhook/safepay', paymentRateLimit, paymentController.handleSafepa
 
 // Safepay callback redirect (user returns from Safepay checkout - no auth needed, rate limited)
 router.get('/callback/safepay', paymentRateLimit, paymentController.handleSafepayCallback);
+router.post('/callback/safepay', paymentRateLimit, paymentController.handleSafepayCallback);
 
 /**
  * @swagger
@@ -479,4 +480,3 @@ router.get(
 );
 
 export default router;
-
