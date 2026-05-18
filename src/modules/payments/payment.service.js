@@ -190,10 +190,6 @@ class PaymentService {
               const contract = await Contract.findById(escrow.contractId);
               if (contract) {
                 contract.paymentStatus = 'COMPLETED';
-                // Activate the contract now that escrow is funded
-                if (contract.status === 'pending') {
-                  contract.status = 'active';
-                }
                 await contract.save();
               }
             }
@@ -239,9 +235,27 @@ class PaymentService {
       limit = 20,
     } = filters;
 
+    if (type === TRANSACTION_TYPE.PLATFORM_FEE) {
+      return {
+        transactions: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
     const query = { userId };
 
-    if (type) query.type = type;
+    if (type) {
+      query.type = type;
+    } else {
+      // Platform fee rows are internal ledger entries. User history already
+      // shows the fee on the net escrow-release payout row.
+      query.type = { $ne: TRANSACTION_TYPE.PLATFORM_FEE };
+    }
     if (status) query.status = status;
     if (paymentMethod) query.paymentMethod = paymentMethod;
     if (startDate || endDate) {

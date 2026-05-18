@@ -177,8 +177,9 @@ class ContractService {
         terms: contractData.terms,
         deadline: contractData.deadline,
         milestones: contractData.milestones || [],
-        // If wallet payment, contract is ACTIVE immediately since funds are already locked
-        status: isWalletPayment ? CONTRACT_STATUS.ACTIVE : CONTRACT_STATUS.PENDING,
+        // Funds can be locked before acceptance, but the freelancer must still accept
+        // before the contract becomes active.
+        status: CONTRACT_STATUS.PENDING,
         paymentStatus: isWalletPayment ? 'FUNDED' : 'PENDING',
         initialEscrowId: escrow._id,
         paymentTransactionId: paymentResult.transactionId,

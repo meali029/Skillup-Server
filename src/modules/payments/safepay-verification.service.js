@@ -23,19 +23,14 @@ async function autoFundEscrowAndActivateContract(transaction, logPrefix = 'Safep
     }
 
     if (escrow.contractId && escrow.milestoneId === 'TOTAL') {
-      const activated = await Contract.findOneAndUpdate(
-        { _id: escrow.contractId, status: 'pending' },
-        { $set: { paymentStatus: 'COMPLETED', status: 'active' } },
+      const updated = await Contract.findOneAndUpdate(
+        { _id: escrow.contractId, paymentStatus: { $ne: 'COMPLETED' } },
+        { $set: { paymentStatus: 'COMPLETED' } },
         { new: true }
       );
 
-      if (activated) {
-        console.log(`${logPrefix}: contract`, escrow.contractId, 'activated');
-      } else {
-        await Contract.updateOne(
-          { _id: escrow.contractId, paymentStatus: { $ne: 'COMPLETED' } },
-          { $set: { paymentStatus: 'COMPLETED' } }
-        );
+      if (updated) {
+        console.log(`${logPrefix}: contract`, escrow.contractId, 'payment completed');
       }
     }
   } catch (error) {
