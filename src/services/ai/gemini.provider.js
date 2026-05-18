@@ -33,12 +33,67 @@ class GeminiProvider extends AIProviderInterface {
     this.initialize();
   }
 
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getRetryDelay(attempt) {
+    const baseDelay = 800;
+    const jitter = Math.floor(Math.random() * 250);
+    return baseDelay * (2 ** attempt) + jitter;
+  }
+
+  isRetryableError(error) {
+    const httpStatus = error.status ?? error.statusCode;
+    const msg = (error.message || '').toLowerCase();
+
+    return (
+      httpStatus === 429 ||
+      httpStatus === 500 ||
+      httpStatus === 502 ||
+      httpStatus === 503 ||
+      httpStatus === 504 ||
+      msg.includes('high demand') ||
+      msg.includes('temporarily unavailable') ||
+      msg.includes('unavailable') ||
+      msg.includes('timed out') ||
+      msg.includes('timeout')
+    );
+  }
+
+  normalizeError(error, timeout) {
+    const httpStatus = error.status ?? error.statusCode;
+    const msg = error.message || '';
+    const lowerMsg = msg.toLowerCase();
+
+    if (httpStatus === 429 || msg.includes('429') || lowerMsg.includes('quota')) {
+      throw AIRateLimitError();
+    }
+    if (httpStatus === 504 || lowerMsg.includes('timeout') || lowerMsg.includes('timed out')) {
+      throw AITimeoutError(timeout);
+    }
+    if (httpStatus === 503 || lowerMsg.includes('unavailable') || lowerMsg.includes('high demand')) {
+      throw AIProviderError('AI service is temporarily unavailable. Please try again shortly.', 503);
+    }
+    if (lowerMsg.includes('api key') || httpStatus === 400) {
+      throw AIConfigurationError('Invalid Gemini API key or missing Gemini API key');
+    }
+
+    throw AIProviderError('AI provider encountered an error. Please try again later.', 500);
+  }
+
   /**
    * Initialize Gemini client
    */
   initialize() {
     try {
+      console.log('🔍 [Gemini] Initializing provider...');
+      console.log('🔍 [Gemini] GEMINI_API_KEY present:', !!aiConfig.gemini.apiKey);
+      console.log('🔍 [Gemini] GEMINI_API_KEY length:', aiConfig.gemini.apiKey?.length);
+      console.log('🔍 [Gemini] Model:', aiConfig.gemini.model);
+      
       if (!aiConfig.gemini.apiKey) {
+        console.warn('⚠️ [Gemini] No API key configured!');
         this.initialized = false;
         return;
       }
@@ -48,6 +103,7 @@ class GeminiProvider extends AIProviderInterface {
         model: aiConfig.gemini.model 
       });
       this.initialized = true;
+      console.log('✅ [Gemini] Provider initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize Gemini provider:', error.message);
       this.initialized = false;
@@ -135,78 +191,84 @@ class GeminiProvider extends AIProviderInterface {
     const maxTokens = options.maxTokens || aiConfig.gemini.maxTokens;
     const temperature = options.temperature ?? aiConfig.gemini.temperature;
     const timeout = options.timeout || aiConfig.gemini.timeout;
+    const retries = Number.isInteger(options.retries) ? options.retries : 2;
 
-    try {
-      this.requestCount++;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      let timeoutPromise;
+      try {
+        this.requestCount++;
 
         // Create timeout promise (we keep a reference so we can swallow its rejection later to avoid unhandled rejections)
-      let timeoutPromise = this.createTimeoutPromise(timeout);
+        timeoutPromise = this.createTimeoutPromise(timeout);
 
-      // Create generation promise
-      const generationPromise = this.model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: maxTokens,
-          temperature: temperature,
-        },
-      });
+        // Create generation promise
+        const generationPromise = this.model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            temperature: temperature,
+          },
+        });
 
-      // Race between generation and timeout
-      const result = await Promise.race([generationPromise, timeoutPromise]);
+        // Race between generation and timeout
+        const result = await Promise.race([generationPromise, timeoutPromise]);
 
-      // If generation won the race, cancel the timeout and swallow its rejection to avoid unhandled rejections
-      try {
-        if (timeoutPromise && typeof timeoutPromise.cancel === 'function') {
-          timeoutPromise.cancel();
+        // If generation won the race, cancel the timeout and swallow its rejection to avoid unhandled rejections
+        try {
+          if (timeoutPromise && typeof timeoutPromise.cancel === 'function') {
+            timeoutPromise.cancel();
+          }
+          if (timeoutPromise && typeof timeoutPromise.catch === 'function') {
+            timeoutPromise.catch(() => {});
+          }
+        } catch (e) {
+          // ignore
         }
-        if (timeoutPromise && typeof timeoutPromise.catch === 'function') {
-          timeoutPromise.catch(() => {});
+
+        const response = await result.response;
+        const text = response.text();
+
+        // Calculate tokens (approximate)
+        const tokensUsed = Math.ceil((prompt.length + text.length) / 4);
+
+        return {
+          text: text.trim(),
+          tokensUsed: tokensUsed,
+          confidence: 85, // Gemini doesn't provide confidence, use default
+        };
+      } catch (error) {
+        // Log raw error details for debugging
+        console.error('🔴 [Gemini] Raw API error:', {
+          message: error.message,
+          status: error.status,
+          statusCode: error.statusCode,
+          code: error.code,
+          attempt: attempt + 1,
+          retries: retries + 1,
+          errorDetails: error.toString(),
+        });
+
+        // If an error occurred synchronously or from generation, cancel the pending timeout
+        // and swallow its rejection so no timer will trigger later.
+        try {
+          if (timeoutPromise && typeof timeoutPromise.cancel === 'function') {
+            timeoutPromise.cancel();
+          }
+          if (timeoutPromise && typeof timeoutPromise.catch === 'function') {
+            timeoutPromise.catch(() => {});
+          }
+        } catch (e) {
+          // ignore
         }
-      } catch (e) {
-        // ignore
-      }
 
-      const response = await result.response;
-      const text = response.text();
-
-      // Calculate tokens (approximate)
-      const tokensUsed = Math.ceil((prompt.length + text.length) / 4);
-
-      return {
-        text: text.trim(),
-        tokensUsed: tokensUsed,
-        confidence: 85, // Gemini doesn't provide confidence, use default
-      };
-    } catch (error) {
-      // If an error occurred synchronously or from generation, cancel the pending timeout
-      // and swallow its rejection so no timer will trigger later.
-      try {
-        if (timeoutPromise && typeof timeoutPromise.cancel === 'function') {
-          timeoutPromise.cancel();
+        if (attempt < retries && this.isRetryableError(error)) {
+          const delay = this.getRetryDelay(attempt);
+          console.warn(`🟡 [Gemini] Retryable error, retrying in ${delay}ms...`);
+          await this.sleep(delay);
+          continue;
         }
-        if (timeoutPromise && typeof timeoutPromise.catch === 'function') {
-          timeoutPromise.catch(() => {});
-        }
-      } catch (e) {
-        // ignore
-      }
 
-      // Handle specific errors
-      // Note: Google SDK uses error.status (not error.statusCode) and embeds the HTTP
-      // status in the message string — check both to be safe.
-      const httpStatus = error.status ?? error.statusCode;
-      const msg = error.message || '';
-
-      if (httpStatus === 429 || msg.includes('429') || msg.toLowerCase().includes('quota')) {
-        throw AIRateLimitError();
-      } else if (httpStatus === 504 || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('timed out')) {
-        throw AITimeoutError(timeout);
-      } else if (httpStatus === 503 || msg.toLowerCase().includes('unavailable')) {
-        throw AIProviderError('AI service is temporarily unavailable. Please try again shortly.', 503);
-      } else if (msg.toLowerCase().includes('api key') || httpStatus === 400) {
-        throw AIConfigurationError('Invalid or missing Gemini API key');
-      } else {
-        throw AIProviderError('AI provider encountered an error. Please try again later.', 500);
+        this.normalizeError(error, timeout);
       }
     }
   }
@@ -302,5 +364,3 @@ Provide a JSON response with this structure:
 
 // Export singleton instance
 export default new GeminiProvider();
-
-
