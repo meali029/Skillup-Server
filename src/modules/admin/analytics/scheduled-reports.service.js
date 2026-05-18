@@ -1,30 +1,14 @@
 import cron from 'node-cron';
-import nodemailer from 'nodemailer';
 import analyticsService from './analytics.service.js';
 import exportService from './export.service.js';
 import User from '../../../models/User.js';
 import logger from '../../../core/utils/logger.js';
+import { JOB_SCHEDULES } from '../../../workers/jobSchedules.js';
+import { sendEmailMessage } from '../../../core/utils/emailService.js';
 
 class ScheduledReportsService {
   constructor() {
-    this.transporter = null;
-    this.initializeEmailTransporter();
     this.scheduleReports();
-  }
-
-  /**
-   * Initialize email transporter
-   */
-  initializeEmailTransporter() {
-    this.transporter = nodemailer.createTransporter({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: process.env.EMAIL_PORT || 587,
-      secure: false,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    });
   }
 
   /**
@@ -32,13 +16,13 @@ class ScheduledReportsService {
    */
   scheduleReports() {
     // Weekly report - Every Monday at 9:00 AM
-    cron.schedule('0 9 * * 1', async () => {
+    cron.schedule(JOB_SCHEDULES.adminWeeklyReport, async () => {
       logger.info('Running weekly scheduled report');
       await this.sendWeeklyReport();
     });
 
     // Monthly report - 1st day of month at 9:00 AM
-    cron.schedule('0 9 1 * *', async () => {
+    cron.schedule(JOB_SCHEDULES.adminMonthlyReport, async () => {
       logger.info('Running monthly scheduled report');
       await this.sendMonthlyReport();
     });
@@ -124,7 +108,6 @@ class ScheduledReportsService {
     }
 
     const mailOptions = {
-      from: `"SkillUp Platform" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: `${reportType} Analytics Report - ${new Date().toLocaleDateString()}`,
       html: `
@@ -161,7 +144,7 @@ class ScheduledReportsService {
       attachments
     };
 
-    await this.transporter.sendMail(mailOptions);
+    await sendEmailMessage({ ...mailOptions, category: 'admin-analytics-report' });
   }
 
   /**

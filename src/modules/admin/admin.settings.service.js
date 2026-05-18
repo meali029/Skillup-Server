@@ -36,6 +36,8 @@ class AdminSettingsService {
         'aiMatchScoreEnhancement',
         'aiProvider',
         'safepayEnabled',
+        'emailEnabled',
+        'emailProvider',
       ];
 
       const validatedUpdates = {};
@@ -115,4 +117,3 @@ class AdminSettingsService {
 }
 
 export default new AdminSettingsService();
-

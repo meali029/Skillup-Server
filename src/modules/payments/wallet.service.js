@@ -121,6 +121,22 @@ class WalletService {
   }
 
   /**
+   * Credit wallet balance for an already-recorded external deposit.
+   * This updates wallet totals without creating a second Transaction row.
+   */
+  async creditExistingDeposit(userId, amount, session = null) {
+    if (amount <= 0) {
+      throw createAppError('Amount must be greater than zero', 400);
+    }
+
+    try {
+      return Wallet.atomicRecordDeposit(userId, amount, session);
+    } catch (error) {
+      throw createAppError(`Credit wallet failed: ${error.message}`, 500);
+    }
+  }
+
+  /**
    * Debit wallet with transaction support
    * Used for withdrawals
    * 
@@ -550,4 +566,3 @@ class WalletService {
 }
 
 export default new WalletService();
-

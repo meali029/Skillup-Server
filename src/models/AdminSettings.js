@@ -46,6 +46,18 @@ const adminSettingsSchema = new mongoose.Schema(
       default: false,
     },
 
+    // Transactional email delivery
+    emailEnabled: {
+      type: Boolean,
+      default: true,
+    },
+
+    emailProvider: {
+      type: String,
+      enum: ['resend', 'sendgrid', 'nodemailer'],
+      default: () => (process.env.NODE_ENV === 'production' ? 'resend' : 'nodemailer'),
+    },
+
     // Additional settings
     settings: {
       type: Map,
@@ -84,7 +96,5 @@ adminSettingsSchema.statics.updateSettings = async function(updates) {
 const AdminSettings = mongoose.models.AdminSettings || mongoose.model('AdminSettings', adminSettingsSchema);
 
 export default AdminSettings;
-
-
 
 

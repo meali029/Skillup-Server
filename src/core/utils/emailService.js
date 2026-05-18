@@ -1,23 +1,27 @@
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import axios from 'axios';
 import { getEmailQueue, addJob } from '../../config/queues.js';
 import { isRedisConnected } from '../../config/redis.js';
+import { JOB_NAMES, JOB_OPTIONS } from '../../workers/jobSchedules.js';
+import { getEnvWithRefresh } from './envLoader.js';
+import adminSettingsService from '../../modules/admin/admin.settings.service.js';
 
-// Create reusable transporter
-// - `EMAIL_DEBUG=true` enables nodemailer debug output (only enable temporarily)
-// - `EMAIL_CONNECTION_TIMEOUT` controls SMTP connection timeout (ms)
-const createTransporter = () => {
+const EMAIL_PROVIDERS = Object.freeze(['resend', 'sendgrid', 'nodemailer']);
+
+// Create reusable transporter.
+const createTransporter = (config) => {
   const transporterOptions = {
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT, 10) || 587,
-    secure: process.env.EMAIL_SECURE === 'true' || false, // set true for port 465
+    host: config.smtpHost,
+    port: config.smtpPort,
+    secure: config.smtpSecure,
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD,
+      user: config.smtpUser,
+      pass: config.smtpPassword,
     },
-    logger: process.env.EMAIL_DEBUG === 'true',
-    debug: process.env.EMAIL_DEBUG === 'true',
-    connectionTimeout: parseInt(process.env.EMAIL_CONNECTION_TIMEOUT, 10) || 10000,
+    logger: config.smtpDebug,
+    debug: config.smtpDebug,
+    connectionTimeout: config.connectionTimeout,
   };
 
   return nodemailer.createTransport(transporterOptions);
@@ -40,20 +44,292 @@ const getBackendApiUrl = () => {
   return url.replace(/\/$/, '');
 };
 
+const defaultEmailProvider = () => (process.env.NODE_ENV === 'production' ? 'resend' : 'nodemailer');
+
+const getEmailSettings = async () => {
+  try {
+    const settings = await adminSettingsService.getSettings();
+    const provider = EMAIL_PROVIDERS.includes(settings.emailProvider)
+      ? settings.emailProvider
+      : defaultEmailProvider();
+
+    return {
+      enabled: settings.emailEnabled !== false,
+      provider,
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      provider: defaultEmailProvider(),
+    };
+  }
+};
+
+const readEmailRuntimeConfig = async () => {
+  const [
+    emailFrom,
+    emailReplyTo,
+    resendApiKey,
+    sendgridApiKey,
+    smtpHost,
+    smtpPort,
+    smtpSecure,
+    smtpUser,
+    smtpPassword,
+    smtpDebug,
+    connectionTimeout,
+  ] = await Promise.all([
+    getEnvWithRefresh('EMAIL_FROM', null),
+    getEnvWithRefresh('EMAIL_REPLY_TO', null),
+    getEnvWithRefresh('RESEND_API_KEY', null),
+    getEnvWithRefresh('SENDGRID_API_KEY', null),
+    getEnvWithRefresh('EMAIL_HOST', 'smtp.gmail.com'),
+    getEnvWithRefresh('EMAIL_PORT', '587'),
+    getEnvWithRefresh('EMAIL_SECURE', 'false'),
+    getEnvWithRefresh('EMAIL_USER', null),
+    getEnvWithRefresh('EMAIL_PASSWORD', null),
+    getEnvWithRefresh('EMAIL_DEBUG', 'false'),
+    getEnvWithRefresh('EMAIL_CONNECTION_TIMEOUT', '10000'),
+  ]);
+
+  const fallbackFrom = smtpUser ? `"SkillUp" <${smtpUser}>` : null;
+
+  return {
+    from: emailFrom || fallbackFrom,
+    replyTo: emailReplyTo || undefined,
+    resendApiKey,
+    sendgridApiKey,
+    smtpHost,
+    smtpPort: parseInt(smtpPort, 10) || 587,
+    smtpSecure: smtpSecure === 'true',
+    smtpUser,
+    smtpPassword,
+    smtpDebug: smtpDebug === 'true',
+    connectionTimeout: parseInt(connectionTimeout, 10) || 10000,
+  };
+};
+
+const normalizeRecipients = (to) => (Array.isArray(to) ? to : [to]).filter(Boolean);
+
+const encodeAttachment = (attachment) => {
+  if (!attachment?.content) return null;
+  const content = Buffer.isBuffer(attachment.content)
+    ? attachment.content.toString('base64')
+    : Buffer.from(String(attachment.content)).toString('base64');
+
+  return {
+    filename: attachment.filename,
+    content,
+    contentType: attachment.contentType,
+  };
+};
+
+const parseEmailAddress = (value) => {
+  const match = String(value || '').match(/^(.*?)\s*<([^>]+)>$/);
+  if (match) {
+    return {
+      name: match[1].replace(/^"|"$/g, '').trim() || undefined,
+      email: match[2].trim(),
+    };
+  }
+  return { email: String(value || '').trim() };
+};
+
+const normalizeProviderError = (provider, error) => {
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  const providerMessage =
+    data?.message ||
+    data?.error?.message ||
+    data?.errors?.[0]?.message ||
+    error?.message ||
+    'Email provider request failed';
+
+  const normalized = new Error(`${provider} email failed${status ? ` (${status})` : ''}: ${providerMessage}`);
+  normalized.provider = provider;
+  normalized.status = status;
+  normalized.details = data;
+  return normalized;
+};
+
+const sendWithResend = async (message, config) => {
+  if (!config.resendApiKey) {
+    throw new Error('RESEND_API_KEY is not configured');
+  }
+  if (!message.from) {
+    throw new Error('EMAIL_FROM is required for Resend');
+  }
+
+  try {
+    const payload = {
+      from: message.from,
+      to: normalizeRecipients(message.to),
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+    };
+    if (message.replyTo) payload.reply_to = message.replyTo;
+    if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+      payload.attachments = message.attachments
+        .map(encodeAttachment)
+        .filter(Boolean)
+        .map((attachment) => ({
+          filename: attachment.filename,
+          content: attachment.content,
+        }));
+    }
+
+    const response = await axios.post('https://api.resend.com/emails', payload, {
+      headers: {
+        Authorization: `Bearer ${config.resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+    });
+
+    return { success: true, provider: 'resend', messageId: response.data?.id };
+  } catch (error) {
+    throw normalizeProviderError('resend', error);
+  }
+};
+
+const sendWithSendGrid = async (message, config) => {
+  if (!config.sendgridApiKey) {
+    throw new Error('SENDGRID_API_KEY is not configured');
+  }
+  if (!message.from) {
+    throw new Error('EMAIL_FROM is required for SendGrid');
+  }
+
+  const from = parseEmailAddress(message.from);
+  const replyTo = message.replyTo ? parseEmailAddress(message.replyTo) : null;
+
+  try {
+    const payload = {
+      personalizations: [
+        {
+          to: normalizeRecipients(message.to).map((email) => ({ email })),
+          subject: message.subject,
+        },
+      ],
+      from,
+      content: [
+        ...(message.text ? [{ type: 'text/plain', value: message.text }] : []),
+        ...(message.html ? [{ type: 'text/html', value: message.html }] : []),
+      ],
+    };
+    if (replyTo?.email) payload.reply_to = replyTo;
+    if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+      payload.attachments = message.attachments
+        .map(encodeAttachment)
+        .filter(Boolean)
+        .map((attachment) => ({
+          content: attachment.content,
+          filename: attachment.filename,
+          type: attachment.contentType,
+          disposition: 'attachment',
+        }));
+    }
+
+    const response = await axios.post('https://api.sendgrid.com/v3/mail/send', payload, {
+      headers: {
+        Authorization: `Bearer ${config.sendgridApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 15000,
+      validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    return {
+      success: true,
+      provider: 'sendgrid',
+      messageId: response.headers?.['x-message-id'],
+    };
+  } catch (error) {
+    throw normalizeProviderError('sendgrid', error);
+  }
+};
+
+const sendWithNodemailer = async (message, config) => {
+  if (!config.smtpUser || !config.smtpPassword) {
+    throw new Error('EMAIL_USER and EMAIL_PASSWORD are required for Nodemailer');
+  }
+
+  const transporter = createTransporter(config);
+  const info = await transporter.sendMail({
+    from: message.from,
+    to: message.to,
+    subject: message.subject,
+    html: message.html,
+    text: message.text,
+    replyTo: message.replyTo,
+    attachments: message.attachments,
+  });
+
+  return { success: true, provider: 'nodemailer', messageId: info.messageId };
+};
+
+export const sendEmailMessage = async (message) => {
+  const settings = await getEmailSettings();
+  if (!settings.enabled) {
+    throw new Error('Email sending is disabled in Admin Settings');
+  }
+
+  const config = await readEmailRuntimeConfig();
+  const prepared = {
+    ...message,
+    from: message.from || config.from,
+    replyTo: message.replyTo || config.replyTo,
+  };
+
+  if (!prepared.to || !prepared.subject || (!prepared.html && !prepared.text)) {
+    throw new Error('Email message requires to, subject, and html or text');
+  }
+
+  switch (settings.provider) {
+    case 'resend':
+      return sendWithResend(prepared, config);
+    case 'sendgrid':
+      return sendWithSendGrid(prepared, config);
+    case 'nodemailer':
+      return sendWithNodemailer(prepared, config);
+    default:
+      throw new Error(`Unsupported email provider: ${settings.provider}`);
+  }
+};
+
+export const sendTestEmail = async (to) => {
+  if (!to) {
+    throw new Error('Test recipient email is required');
+  }
+
+  return sendEmailMessage({
+    to,
+    subject: 'SkillUp Email Test',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #52796F;">SkillUp email delivery is working</h2>
+        <p>This test email was sent from the active provider configured in Admin Settings.</p>
+        <p style="color: #6b7280; font-size: 13px;">Sent at ${new Date().toISOString()}</p>
+      </div>
+    `,
+    text: `SkillUp email delivery is working.\n\nSent at ${new Date().toISOString()}`,
+    category: 'test',
+  });
+};
+
 // Generate email verification token
 export const generateEmailVerificationToken = () => {
   return crypto.randomBytes(32).toString('hex');
 };
 
-// Send email verification email (direct SMTP — used by worker)
+// Send email verification email directly through the active provider.
 export const directSendEmailVerification = async (email, name, verificationToken) => {
   try {
-    const transporter = createTransporter();
     // CRITICAL: Use backend API URL for verification - the backend handles verification and redirects to frontend
     const backendApiUrl = getBackendApiUrl();
     const verificationLink = `${backendApiUrl}/api/auth/verify-email?token=${verificationToken}`;
     const mailOptions = {
-      from: `"SkillUp" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Verify Your Email - SkillUp',
       html: `
@@ -137,12 +413,14 @@ export const directSendEmailVerification = async (email, name, verificationToken
       `,
     };
 
-    await transporter.sendMail(mailOptions);
-    return { success: true };
+    return await sendEmailMessage({ ...mailOptions, category: 'email-verification' });
   } catch (error) {
     console.error('[EmailService] Failed to send verification email:', error?.message || error);
-    console.error('[EmailService] SMTP error details:', {
+    console.error('[EmailService] Email provider error details:', {
       code: error?.code,
+      provider: error?.provider,
+      status: error?.status,
+      details: error?.details,
       response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
       responseCode: error?.responseCode,
       command: error?.command,
@@ -165,13 +443,10 @@ export const resendEmailVerification = async (email, name, verificationToken) =>
   return sendEmailVerification(email, name, verificationToken);
 };
 
-// Send OTP email (direct SMTP — used by worker)
+// Send OTP email directly through the active provider.
 export const directSendOTPEmail = async (email, otp, name) => {
   try {
-    const transporter = createTransporter();
-    
     const mailOptions = {
-      from: `"SkillUp Support" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Password Reset OTP - SkillUp',
       html: `
@@ -262,12 +537,14 @@ export const directSendOTPEmail = async (email, otp, name) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
-    return { success: true };
+    return await sendEmailMessage({ ...mailOptions, category: 'password-reset-otp' });
   } catch (error) {
     console.error('[EmailService] Failed to send OTP email:', error?.message || error);
-    console.error('[EmailService] SMTP error details:', {
+    console.error('[EmailService] Email provider error details:', {
       code: error?.code,
+      provider: error?.provider,
+      status: error?.status,
+      details: error?.details,
       response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
       responseCode: error?.responseCode,
       command: error?.command,
@@ -277,13 +554,10 @@ export const directSendOTPEmail = async (email, otp, name) => {
   }
 };
 
-// Send password reset confirmation email (direct SMTP — used by worker)
+// Send password reset confirmation email directly through the active provider.
 export const directSendPasswordResetConfirmation = async (email, name) => {
   try {
-    const transporter = createTransporter();
-    
     const mailOptions = {
-      from: `"SkillUp Support" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Password Reset Successful - SkillUp',
       html: `
@@ -381,12 +655,14 @@ export const directSendPasswordResetConfirmation = async (email, name) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
-    return { success: true };
+    return await sendEmailMessage({ ...mailOptions, category: 'password-reset-confirmation' });
   } catch (error) {
     console.error('[EmailService] Failed to send password-reset confirmation email:', error?.message || error);
-    console.error('[EmailService] SMTP error details:', {
+    console.error('[EmailService] Email provider error details:', {
       code: error?.code,
+      provider: error?.provider,
+      status: error?.status,
+      details: error?.details,
       response: error?.response ? (typeof error.response === 'string' ? error.response : error.response.toString()) : undefined,
       responseCode: error?.responseCode,
       command: error?.command,
@@ -560,7 +836,7 @@ const SUBSCRIPTION_EMAIL_BUILDERS = {
 };
 
 /**
- * Build and send a subscription email (direct SMTP — used by worker)
+ * Build and send a subscription email through the active provider.
  */
 export const directSendSubscriptionEmail = async (email, data) => {
   const builder = SUBSCRIPTION_EMAIL_BUILDERS[data.emailType];
@@ -571,9 +847,7 @@ export const directSendSubscriptionEmail = async (email, data) => {
   const { subject, headerBg, headerTitle, headerSubtitle, body, buttonText, buttonLink } = builder(data);
   const frontendUrl = getFrontendUrl();
 
-  const transporter = createTransporter();
   const mailOptions = {
-    from: `"SkillUp" <${process.env.EMAIL_USER}>`,
     to: email,
     subject,
     html: `
@@ -604,31 +878,27 @@ export const directSendSubscriptionEmail = async (email, data) => {
     text: `${headerTitle}\n\n${body.replace(/<[^>]*>/g, '').trim()}\n\n© ${new Date().getFullYear()} SkillUp`,
   };
 
-  await transporter.sendMail(mailOptions);
-  return { success: true };
+  return sendEmailMessage({ ...mailOptions, category: 'subscription' });
 };
 
-// ── Public API: enqueue via BullMQ (falls back to direct SMTP) ──────
+// ── Public API: auth-critical emails are direct; non-critical emails can queue ──────
 
 export const sendEmailVerification = async (email, name, verificationToken) => {
-  if (isRedisConnected()) {
-    const job = await addJob(getEmailQueue(), 'send-verification', { type: 'send-verification', email, name, token: verificationToken }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
-    if (job) return { success: true, queued: true, jobId: job.id };
-  }
   return directSendEmailVerification(email, name, verificationToken);
 };
 
 export const sendOTPEmail = async (email, otp, name) => {
-  if (isRedisConnected()) {
-    const job = await addJob(getEmailQueue(), 'send-otp', { type: 'send-otp', email, otp, name }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
-    if (job) return { success: true, queued: true, jobId: job.id };
-  }
   return directSendOTPEmail(email, otp, name);
 };
 
 export const sendPasswordResetConfirmation = async (email, name) => {
   if (isRedisConnected()) {
-    const job = await addJob(getEmailQueue(), 'send-password-reset', { type: 'send-password-reset', email, name }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+    const job = await addJob(
+      getEmailQueue(),
+      JOB_NAMES.emailPasswordReset,
+      { type: JOB_NAMES.emailPasswordReset, email, name },
+      JOB_OPTIONS.emailRetry
+    );
     if (job) return { success: true, queued: true, jobId: job.id };
   }
   return directSendPasswordResetConfirmation(email, name);
@@ -643,9 +913,9 @@ export const sendSubscriptionEmail = async (email, data) => {
   if (isRedisConnected()) {
     const job = await addJob(
       getEmailQueue(),
-      'send-subscription-email',
-      { type: 'send-subscription-email', email, ...data },
-      { attempts: 3, backoff: { type: 'exponential', delay: 5000 } }
+      JOB_NAMES.emailSubscription,
+      { type: JOB_NAMES.emailSubscription, email, ...data },
+      JOB_OPTIONS.emailRetry
     );
     if (job) return { success: true, queued: true, jobId: job.id };
   }
@@ -654,24 +924,42 @@ export const sendSubscriptionEmail = async (email, data) => {
 
 // Verify email configuration
 export const verifyEmailConfig = async () => {
-  // Quick sanity checks to fail fast when env vars are missing
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-    console.warn('⚠️  Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
-    console.warn('⚠️  Email functionality will be disabled');
+  const settings = await getEmailSettings();
+  const config = await readEmailRuntimeConfig();
+
+  if (!settings.enabled) {
+    console.warn('[EmailService] Email sending is disabled in Admin Settings');
     return false;
   }
 
-  // Skip SMTP verification in production to avoid blocking startup
-  // (Many PaaS providers block outbound SMTP ports 25/465/587)
+  if (settings.provider === 'resend') {
+    const ready = Boolean(config.resendApiKey && config.from);
+    console.info(`[EmailService] Provider: Resend HTTP API (${ready ? 'configured' : 'missing RESEND_API_KEY or EMAIL_FROM'})`);
+    return ready;
+  }
+
+  if (settings.provider === 'sendgrid') {
+    const ready = Boolean(config.sendgridApiKey && config.from);
+    console.info(`[EmailService] Provider: SendGrid HTTP API (${ready ? 'configured' : 'missing SENDGRID_API_KEY or EMAIL_FROM'})`);
+    return ready;
+  }
+
+  if (!config.smtpUser || !config.smtpPassword) {
+    console.warn('⚠️  Email service configuration missing: EMAIL_USER or EMAIL_PASSWORD is not set');
+    console.warn('⚠️  Nodemailer email functionality will be disabled');
+    return false;
+  }
+
   if (process.env.NODE_ENV === 'production') {
+    console.info('[EmailService] Provider: Nodemailer SMTP');
     console.info('[EmailService] Running in production - skipping SMTP verification');
-    console.info('[EmailService] Email sending will be attempted at runtime');
+    console.info('[EmailService] SMTP may be blocked on Railway Free/Trial/Hobby plans');
     return true;
   }
 
   // In development, verify SMTP connection
   try {
-    const transporter = createTransporter();
+    const transporter = createTransporter(config);
     // set a short timeout for verification to avoid long startup delays
     const verifyPromise = transporter.verify();
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP verify timeout')), 5000));

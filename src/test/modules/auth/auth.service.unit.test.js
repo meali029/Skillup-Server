@@ -30,6 +30,7 @@ describe('Auth Service (unit tests)', () => {
       User.findById.mockReturnValue({ select: jest.fn().mockResolvedValue(savedUser) });
 
       jest.spyOn(SharedServices.TokenService, 'generateToken').mockReturnValue('TOKEN123');
+      jest.spyOn(emailService, 'sendEmailVerification').mockResolvedValue({ success: true });
 
       const res = await AuthService.registerLocal({ name: 'U', email: 'u@test.com', password: 'P', role: 'freelancer', skills: ['js'], hourlyRate: '20', experience: '3' });
 
