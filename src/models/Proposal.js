@@ -35,9 +35,15 @@ const proposalSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "accepted", "rejected", "withdrawn"],
+      enum: ["pending", "accepted", "completed", "closed", "rejected", "withdrawn"],
       default: "pending",
       index: true,
+    },
+    completedAt: {
+      type: Date,
+    },
+    closedAt: {
+      type: Date,
     },
     attachments: [
       {

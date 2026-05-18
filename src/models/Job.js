@@ -420,7 +420,7 @@ jobSchema.pre('save', async function(next) {
       // Only reject PENDING proposals (not accepted ones)
       await Proposal.updateMany(
         { 
-          job: this._id,
+          jobId: this._id,
           status: 'pending'
         },
         { 

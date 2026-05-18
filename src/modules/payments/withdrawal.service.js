@@ -7,7 +7,6 @@ import { createAuditLog } from '../../core/utils/auditLogger.js';
 import {
   PAYMENT_METHOD,
   WITHDRAWAL_STATUS,
-  TRANSACTION_TYPE,
   TRANSACTION_STATUS,
   PAYMENT_LIMITS,
   isValidWithdrawalAmount,
@@ -55,7 +54,7 @@ class WithdrawalService {
     today.setHours(0, 0, 0, 0);
     const todayWithdrawals = await WithdrawalRequest.find({
       userId,
-      status: { $in: [WITHDRAWAL_STATUS.SUCCESS, WITHDRAWAL_STATUS.PROCESSING] },
+      status: { $in: [WITHDRAWAL_STATUS.REQUESTED, WITHDRAWAL_STATUS.SUCCESS, WITHDRAWAL_STATUS.PROCESSING] },
       createdAt: { $gte: today },
     });
 
@@ -108,14 +107,13 @@ class WithdrawalService {
       status: WITHDRAWAL_STATUS.REQUESTED,
     });
 
-    // Lock funds in wallet (debit available balance)
-    await walletService.debitWallet(
+    // Lock funds in wallet. The payout is not successful until admin processes it.
+    await walletService.lockWithdrawalFunds(
       userId,
       amount,
       {
         withdrawalRequestId: withdrawalRequest._id.toString(),
-        description: `Withdrawal request: PKR ${amount}`,
-        type: TRANSACTION_TYPE.WITHDRAWAL,
+        description: `Withdrawal request pending approval: PKR ${amount}`,
         paymentMethod,
       }
     );
@@ -245,8 +243,7 @@ class WithdrawalService {
           }
         );
 
-        // Note: totalWithdrawn already incremented by debitWallet → atomicRecordWithdrawal
-        // No need to increment again here
+        await walletService.releaseLockedWithdrawal(withdrawal.userId, withdrawal.amount);
 
         // Audit log for successful withdrawal processing
         await createAuditLog({
@@ -281,15 +278,10 @@ class WithdrawalService {
           }
         );
 
-        // Refund to wallet
-        await walletService.creditWallet(
+        // Unlock funds back to available balance
+        await walletService.unlockWithdrawalFunds(
           withdrawal.userId,
-          withdrawal.amount,
-          {
-            description: `Withdrawal failed - refund: PKR ${withdrawal.amount}`,
-            type: 'REFUND',
-            paymentMethod: 'WALLET',
-          }
+          withdrawal.amount
         );
 
         throw createAppError(
@@ -316,15 +308,10 @@ class WithdrawalService {
         }
       );
 
-      // Refund to wallet
-      await walletService.creditWallet(
+      // Unlock funds back to available balance
+      await walletService.unlockWithdrawalFunds(
         withdrawal.userId,
-        withdrawal.amount,
-        {
-          description: `Withdrawal error - refund: PKR ${withdrawal.amount}`,
-          type: 'REFUND',
-          paymentMethod: 'WALLET',
-        }
+        withdrawal.amount
       );
 
       throw error;
@@ -363,15 +350,10 @@ class WithdrawalService {
       }
     );
 
-    // Refund to wallet
-    await walletService.creditWallet(
+    // Unlock funds back to available balance
+    await walletService.unlockWithdrawalFunds(
       userId,
-      withdrawal.amount,
-      {
-        description: `Withdrawal cancelled - refund: PKR ${withdrawal.amount}`,
-        type: 'REFUND',
-        paymentMethod: 'WALLET',
-      }
+      withdrawal.amount
     );
 
     return withdrawal;
@@ -448,16 +430,10 @@ class WithdrawalService {
       }
     );
 
-    // Refund to wallet
-    await walletService.creditWallet(
+    // Unlock funds back to available balance
+    await walletService.unlockWithdrawalFunds(
       withdrawal.userId,
-      withdrawal.amount,
-      {
-        description: `Withdrawal rejected - refund: PKR ${withdrawal.amount}`,
-        type: 'REFUND',
-        paymentMethod: 'WALLET',
-        withdrawalRequestId: withdrawal._id.toString(),
-      }
+      withdrawal.amount
     );
 
     // Audit log for rejection
@@ -479,4 +455,3 @@ class WithdrawalService {
 }
 
 export default new WithdrawalService();
-

@@ -136,7 +136,7 @@ export const jobIdSchema = Joi.object({
  */
 export const proposalQuerySchema = Joi.object({
   status: Joi.string()
-    .valid("pending", "accepted", "rejected", "withdrawn")
+    .valid("pending", "accepted", "completed", "closed", "rejected", "withdrawn")
     .optional()
     .messages({
       "any.only": "Invalid status value",
