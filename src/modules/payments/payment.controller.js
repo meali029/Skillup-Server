@@ -34,21 +34,16 @@ async function autoFundEscrowAndActivateContract(transaction, logPrefix = 'Payme
       });
     }
 
-    // Activate contract atomically if this is the initial contract escrow
+    // Mark payment as completed if this is the initial contract escrow.
+    // The contract stays pending until the freelancer accepts it.
     if (escrow.contractId && escrow.milestoneId === 'TOTAL') {
-      const activated = await Contract.findOneAndUpdate(
-        { _id: escrow.contractId, status: 'pending' },
-        { $set: { paymentStatus: 'COMPLETED', status: 'active' } },
+      const updated = await Contract.findOneAndUpdate(
+        { _id: escrow.contractId, paymentStatus: { $ne: 'COMPLETED' } },
+        { $set: { paymentStatus: 'COMPLETED' } },
         { new: true }
       );
-      if (activated) {
-        console.log(`${logPrefix}: contract`, escrow.contractId, 'activated');
-      } else {
-        // Contract may already be active or in another state — update paymentStatus only
-        await Contract.updateOne(
-          { _id: escrow.contractId, paymentStatus: { $ne: 'COMPLETED' } },
-          { $set: { paymentStatus: 'COMPLETED' } }
-        );
+      if (updated) {
+        console.log(`${logPrefix}: contract`, escrow.contractId, 'payment completed');
       }
     }
   } catch (escrowErr) {
