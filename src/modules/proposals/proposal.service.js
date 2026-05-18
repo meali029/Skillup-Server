@@ -379,20 +379,25 @@ export const withdrawProposal = async (proposalId, userId) => {
 };
 
 export const getProposalStats = async (userId) => {
-  const [total, pending, accepted, rejected, withdrawn] = await Promise.all([
+  const [total, pending, accepted, completed, closed, rejected, withdrawn] = await Promise.all([
     Proposal.countDocuments({ freelancerId: userId }),
     Proposal.countDocuments({ freelancerId: userId, status: "pending" }),
     Proposal.countDocuments({ freelancerId: userId, status: "accepted" }),
+    Proposal.countDocuments({ freelancerId: userId, status: "completed" }),
+    Proposal.countDocuments({ freelancerId: userId, status: "closed" }),
     Proposal.countDocuments({ freelancerId: userId, status: "rejected" }),
     Proposal.countDocuments({ freelancerId: userId, status: "withdrawn" }),
   ]);
 
-  const successRate = total > 0 ? ((accepted / total) * 100).toFixed(2) : 0;
+  const successful = accepted + completed + closed;
+  const successRate = total > 0 ? ((successful / total) * 100).toFixed(2) : 0;
 
   return {
     total,
     pending,
     accepted,
+    completed,
+    closed,
     rejected,
     withdrawn,
     successRate: parseFloat(successRate),
@@ -710,6 +715,8 @@ export const getAllClientProposals = async (clientId, filters = {}) => {
     total: await Proposal.countDocuments({ jobId: { $in: jobIds } }),
     pending: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "pending" }),
     accepted: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "accepted" }),
+    completed: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "completed" }),
+    closed: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "closed" }),
     rejected: await Proposal.countDocuments({ jobId: { $in: jobIds }, status: "rejected" }),
   };
 

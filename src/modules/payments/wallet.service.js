@@ -216,6 +216,97 @@ class WalletService {
   }
 
   /**
+   * Lock wallet funds for a withdrawal request.
+   * Funds leave available balance immediately, but the transaction stays pending
+   * until an admin actually processes the payout.
+   */
+  async lockWithdrawalFunds(userId, amount, options = {}) {
+    if (amount <= 0) {
+      throw createAppError('Amount must be greater than zero', 400);
+    }
+
+    const {
+      idempotencyKey = generateIdempotencyKey('WDR'),
+      description = `Withdrawal request pending approval: PKR ${amount}`,
+      paymentMethod = 'WALLET',
+      withdrawalRequestId = null,
+      ipAddress = null,
+    } = options;
+
+    const existingTxn = await Transaction.findByIdempotencyKey(idempotencyKey);
+    if (existingTxn) {
+      const wallet = await this.getWallet(userId);
+      return { wallet, transaction: existingTxn, isExisting: true };
+    }
+
+    const session = await mongoose.startSession();
+
+    try {
+      let wallet;
+      let transaction;
+
+      await session.withTransaction(async () => {
+        const currentWallet = await Wallet.findOne({ userId }).session(session);
+        const balanceBefore = currentWallet?.availableBalance || 0;
+
+        wallet = await Wallet.atomicLockFunds(userId, amount, session);
+
+        [transaction] = await Transaction.create([{
+          idempotencyKey,
+          userId,
+          type: TRANSACTION_TYPE.WITHDRAWAL,
+          direction: 'DEBIT',
+          amount,
+          netAmount: amount,
+          currency: 'PKR',
+          status: TRANSACTION_STATUS.PENDING,
+          paymentMethod,
+          withdrawalRequestId,
+          description,
+          ipAddress,
+          balanceBefore,
+          balanceAfter: wallet.availableBalance,
+        }], { session });
+      });
+
+      return { wallet, transaction, isExisting: false };
+    } catch (error) {
+      if (error.message.includes('Insufficient')) {
+        throw createAppError('Insufficient available balance', 400);
+      }
+      throw createAppError(`Lock withdrawal funds failed: ${error.message}`, 500);
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async releaseLockedWithdrawal(userId, amount) {
+    const session = await mongoose.startSession();
+
+    try {
+      let wallet;
+      await session.withTransaction(async () => {
+        wallet = await Wallet.atomicReleaseFromLocked(userId, amount, session);
+        await Wallet.atomicRecordWithdrawal(userId, amount, session);
+      });
+
+      return wallet;
+    } catch (error) {
+      throw createAppError(`Release locked withdrawal failed: ${error.message}`, 500);
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async unlockWithdrawalFunds(userId, amount) {
+    try {
+      return Wallet.atomicUnlockFunds(userId, amount);
+    } catch (error) {
+      throw createAppError(`Unlock withdrawal funds failed: ${error.message}`, 500);
+    }
+  }
+
+  /**
    * Lock funds in wallet (for escrow)
    * Moves amount from available to locked balance
    * 

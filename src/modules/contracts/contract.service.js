@@ -23,6 +23,24 @@ import paymentModeService from '../../services/paymentGateways/paymentMode.servi
 import { notifyUser } from '../notifications/notification.service.js';
 import { emitContractEvent } from '../../sockets/index.js';
 
+const markLinkedProposalCompleted = async (contract) => {
+  if (!contract?.proposal) return;
+
+  await Proposal.findOneAndUpdate(
+    { _id: contract.proposal, status: 'accepted' },
+    { $set: { status: 'completed', completedAt: new Date() } }
+  );
+};
+
+const markLinkedProposalClosed = async (contract) => {
+  if (!contract?.proposal) return;
+
+  await Proposal.findOneAndUpdate(
+    { _id: contract.proposal, status: { $in: ['accepted', 'completed'] } },
+    { $set: { status: 'closed', closedAt: new Date() } }
+  );
+};
+
 class ContractService {
   /**
    * Create a contract from an accepted proposal
@@ -912,6 +930,12 @@ class ContractService {
         console.error('Failed to update job status to completed:', error.message);
       }
 
+      try {
+        await markLinkedProposalCompleted(contract);
+      } catch (error) {
+        console.error('Failed to update proposal status to completed:', error.message);
+      }
+
       // Update user statistics
       try {
         const totalContractAmount = contract.milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
@@ -1053,6 +1077,12 @@ class ContractService {
     } catch (error) {
       // Log but don't fail contract completion if job update fails
       console.error('Failed to update job status to completed:', error.message);
+    }
+
+    try {
+      await markLinkedProposalCompleted(contract);
+    } catch (error) {
+      console.error('Failed to update proposal status to completed:', error.message);
     }
 
     // Update conversation metadata
@@ -1483,6 +1513,12 @@ class ContractService {
       console.error('Failed to update job status to completed:', error.message);
     }
 
+    try {
+      await markLinkedProposalCompleted(contract);
+    } catch (error) {
+      console.error('Failed to update proposal status to completed:', error.message);
+    }
+
     // Update user statistics for both client and freelancer
     try {
       const amountPaid = paymentDetails?.grossAmount || contract.totalAmount || contract.agreedAmount || 0;
@@ -1656,6 +1692,12 @@ class ContractService {
     // Update status
     contract.status = CONTRACT_STATUS.CLOSED;
     await contract.save();
+
+    try {
+      await markLinkedProposalClosed(contract);
+    } catch (error) {
+      console.error('Failed to update proposal status to closed:', error.message);
+    }
 
     await createAuditLog({
       adminId: userId || 'SYSTEM',
