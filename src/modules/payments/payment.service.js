@@ -164,11 +164,10 @@ class PaymentService {
       transaction.gatewayTransactionId = verificationResult.gatewayTransactionId;
       await transaction.markSuccess();
 
-      // Credit wallet
-      await walletService.creditWallet(
+      // Credit wallet balance; the external deposit transaction already exists.
+      await walletService.creditExistingDeposit(
         transaction.userId,
-        verificationResult.amount,
-        verificationResult.gatewayTransactionId
+        verificationResult.amount
       );
 
       // Check if this transaction is for an escrow and auto-fund it
@@ -330,4 +329,3 @@ class PaymentService {
 }
 
 export default new PaymentService();
-

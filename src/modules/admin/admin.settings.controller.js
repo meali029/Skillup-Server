@@ -2,6 +2,7 @@ import { asyncHandler, successResponse } from '../../core/utils/index.js';
 import adminSettingsService from './admin.settings.service.js';
 import aiService from '../../services/ai/ai.service.js';
 import createAppError from '../../core/errors/AppError.js';
+import { sendTestEmail } from '../../core/utils/emailService.js';
 
 const AppError = createAppError;
 
@@ -63,3 +64,16 @@ export const resetAICircuitBreaker = asyncHandler(async (req, res) => {
   successResponse(res, { reset: true }, 'AI circuit breaker reset successfully');
 });
 
+/**
+ * Send test email through the currently selected provider
+ */
+export const sendEmailTest = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw AppError('A valid test email address is required', 400);
+  }
+
+  const result = await sendTestEmail(email);
+  successResponse(res, { result }, 'Test email sent successfully');
+});

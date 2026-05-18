@@ -5,32 +5,33 @@ import {
   directSendPasswordResetConfirmation,
   directSendSubscriptionEmail,
 } from '../core/utils/emailService.js';
+import { JOB_NAMES, QUEUE_NAMES, WORKER_CONCURRENCY } from './jobSchedules.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 const emailWorker = new Worker(
-  'email-queue',
+  QUEUE_NAMES.email,
   async (job) => {
     const { type } = job.data;
     console.log(`[EmailWorker] Processing ${type} (job ${job.id})`);
 
     switch (type) {
-      case 'send-verification': {
+      case JOB_NAMES.emailVerification: {
         const { email, name, token } = job.data;
         await directSendEmailVerification(email, name, token);
         break;
       }
-      case 'send-otp': {
+      case JOB_NAMES.emailOtp: {
         const { email, otp, name } = job.data;
         await directSendOTPEmail(email, otp, name);
         break;
       }
-      case 'send-password-reset': {
+      case JOB_NAMES.emailPasswordReset: {
         const { email, name } = job.data;
         await directSendPasswordResetConfirmation(email, name);
         break;
       }
-      case 'send-subscription-email': {
+      case JOB_NAMES.emailSubscription: {
         const { email, ...data } = job.data;
         await directSendSubscriptionEmail(email, data);
         break;
@@ -41,7 +42,7 @@ const emailWorker = new Worker(
   },
   {
     connection: { url: REDIS_URL },
-    concurrency: 5,
+    concurrency: WORKER_CONCURRENCY.email,
   },
 );
 

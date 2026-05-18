@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq';
 import { isRedisConnected } from './redis.js';
+import { JOB_OPTIONS, QUEUE_NAMES } from '../workers/jobSchedules.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -20,7 +21,7 @@ let _ocrQueue   = null;
 export const getEmailQueue = () => {
   if (!isRedisConnected()) return null;
   if (!_emailQueue) {
-    _emailQueue = new Queue('email-queue', defaultOpts);
+    _emailQueue = new Queue(QUEUE_NAMES.email, defaultOpts);
     _emailQueue.on('error', () => {});
   }
   return _emailQueue;
@@ -29,12 +30,11 @@ export const getEmailQueue = () => {
 export const getOcrQueue = () => {
   if (!isRedisConnected()) return null;
   if (!_ocrQueue) {
-    _ocrQueue = new Queue('ocr-queue', {
+    _ocrQueue = new Queue(QUEUE_NAMES.ocr, {
       ...defaultOpts,
       defaultJobOptions: {
         ...defaultOpts.defaultJobOptions,
-        attempts: 2,
-        backoff: { type: 'exponential', delay: 10000 },
+        ...JOB_OPTIONS.ocrRetry,
       },
     });
     _ocrQueue.on('error', () => {});

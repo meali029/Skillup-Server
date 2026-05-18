@@ -9,7 +9,7 @@ import Escrow from '../../models/Escrow.js';
 import Contract from '../../models/Contract.js';
 import { asyncHandler } from '../../core/utils/index.js';
 import { createAppError } from '../../core/errors/index.js';
-import { notifyUser } from '../notifications/notification.service.js';
+import { verifyPendingSafepayTransactions } from './safepay-verification.service.js';
 
 /**
  * Payment Controller
@@ -369,110 +369,14 @@ export const getMilestoneEscrow = asyncHandler(async (req, res) => {
 
 // Verify pending Safepay transactions for a user (called by frontend on wallet/pricing page load)
 export const verifySafepayPending = asyncHandler(async (req, res) => {
-  const userId = req.user.id;
-  const timeoutHours = Number(process.env.SAFEPAY_PENDING_TIMEOUT_HOURS || 24);
-  const staleCutoff = new Date(Date.now() - timeoutHours * 60 * 60 * 1000);
-
-  // Find all pending SAFEPAY transactions (deposits + subscriptions) for this user
-  const pendingTxns = await Transaction.find({
-    userId,
-    paymentMethod: 'SAFEPAY',
-    status: 'PENDING',
-    type: { $in: ['DEPOSIT', 'SUBSCRIPTION'] },
-  }).sort({ createdAt: -1 });
-
-  if (pendingTxns.length === 0) {
-    return res.status(200).json({ success: true, data: { verified: 0 } });
-  }
-
-  const safepayService = (await import('../../services/paymentGateways/safepay.service.js')).default;
-  const candidateTxns = [];
-  let verified = 0;
-  let timedOut = 0;
-
-  for (const txn of pendingTxns) {
-    if (txn.createdAt && txn.createdAt <= staleCutoff) {
-      const failedTxn = await Transaction.findOneAndUpdate(
-        { _id: txn._id, status: 'PENDING' },
-        {
-          status: 'FAILED',
-          failureReason: `Safepay verification timeout after ${timeoutHours} hours`,
-          completedAt: new Date(),
-        },
-        { new: true }
-      );
-
-      if (failedTxn) {
-        timedOut += 1;
-        try {
-          await notifyUser(userId, {
-            type: 'payment_failed',
-            title: 'Payment Verification Timed Out',
-            message:
-              failedTxn.type === 'SUBSCRIPTION'
-                ? 'Your pending subscription payment timed out. Please retry from the pricing page if you still want to upgrade.'
-                : 'Your pending wallet deposit timed out. Please try the deposit again.',
-            link: failedTxn.type === 'SUBSCRIPTION' ? '/pricing' : '/wallet',
-          });
-        } catch (notifyErr) {
-          console.error('Safepay timeout notification error for txn', txn._id, notifyErr.message);
-        }
-      }
-
-      continue;
-    }
-
-    candidateTxns.push(txn);
-  }
-
-  if (candidateTxns.length === 0) {
-    return res.status(200).json({
-      success: true,
-      data: { verified: 0, timedOut, pending: 0 },
-    });
-  }
-
-  for (const txn of candidateTxns) {
-    try {
-      const result = await safepayService.verifyPaymentByTracker(
-        txn.gatewayTransactionId,
-        txn.description
-      );
-
-      if (result.success) {
-        // Atomic update: only update if still PENDING to prevent double-credit
-        const updated = await Transaction.findOneAndUpdate(
-          { _id: txn._id, status: 'PENDING' },
-          { status: 'SUCCESS', completedAt: new Date(), gatewayTransactionId: result.gatewayTransactionId || txn.gatewayTransactionId },
-          { new: true }
-        );
-        if (updated) {
-          if (updated.type === 'SUBSCRIPTION') {
-            // Activate subscription after verified Safepay payment
-            await subscriptionService.activateAfterPayment(updated._id);
-            console.log('Safepay auto-verify: subscription activated for user', txn.userId);
-          } else {
-            await walletService.creditWallet(txn.userId, txn.amount, updated.gatewayTransactionId);
-            console.log('Safepay auto-verify: credited', txn.amount, 'to user', txn.userId);
-
-            // Auto-fund escrow if this deposit is linked to one (e.g. contract creation)
-            await autoFundEscrowAndActivateContract(updated, 'Safepay auto-verify');
-          }
-          verified++;
-        }
-      }
-    } catch (err) {
-      console.error('Safepay auto-verify error for txn', txn._id, err.message);
-    }
-  }
+  const result = await verifyPendingSafepayTransactions({
+    userId: req.user.id,
+    logPrefix: 'Safepay user auto-verify',
+  });
 
   return res.status(200).json({
     success: true,
-    data: {
-      verified,
-      timedOut,
-      pending: candidateTxns.length - verified,
-    },
+    data: result,
   });
 });
 
@@ -585,7 +489,7 @@ export const handleSafepayWebhook = asyncHandler(async (req, res) => {
           await subscriptionService.activateAfterPayment(updated._id);
           console.log('Safepay webhook: Subscription activated', { userId: updated.userId });
         } else {
-          await walletService.creditWallet(updated.userId, updated.amount, updated.gatewayTransactionId);
+          await walletService.creditExistingDeposit(updated.userId, updated.amount);
           console.log('Safepay webhook: Payment credited', { amount: updated.amount, userId: updated.userId });
 
           // Auto-fund escrow if this deposit is linked to one
@@ -671,11 +575,7 @@ export const handleSafepayCallback = asyncHandler(async (req, res) => {
           return res.redirect(`${clientUrl}/pricing?payment=success`);
         }
 
-        await walletService.creditWallet(
-          updated.userId,
-          updated.amount,
-          updated.gatewayTransactionId
-        );
+        await walletService.creditExistingDeposit(updated.userId, updated.amount);
 
         // Auto-fund escrow if this deposit is linked to one
         await autoFundEscrowAndActivateContract(updated, 'Safepay callback');
@@ -818,4 +718,3 @@ export const getTransactionById = asyncHandler(async (req, res) => {
     data: { transaction },
   });
 });
-

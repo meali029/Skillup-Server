@@ -1,11 +1,12 @@
 import { Worker } from 'bullmq';
 import cnicOCRService from '../services/cnic-ocr.service.js';
 import User from '../models/User.js';
+import { QUEUE_NAMES, WORKER_CONCURRENCY } from './jobSchedules.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 const ocrWorker = new Worker(
-  'ocr-queue',
+  QUEUE_NAMES.ocr,
   async (job) => {
     const { userId, frontImageUrl, backImageUrl } = job.data;
     console.log(`[OCRWorker] Processing CNIC OCR for user ${userId} (job ${job.id})`);
@@ -29,7 +30,7 @@ const ocrWorker = new Worker(
   },
   {
     connection: { url: REDIS_URL },
-    concurrency: 2, // CPU/memory intensive — keep low
+    concurrency: WORKER_CONCURRENCY.ocr, // CPU/memory intensive — keep low
   },
 );
 

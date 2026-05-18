@@ -68,7 +68,10 @@ export const registerLocal = async (registrationData) => {
     await sendEmailVerification(email, name, emailVerificationToken);
   } catch (emailError) {
     console.error('[Auth Service] Failed to send verification email:', emailError);
-    // Don't fail registration if email fails, but log it
+    if (typeof User.findByIdAndDelete === 'function') {
+      await User.findByIdAndDelete(user._id).catch(() => {});
+    }
+    throw createAppError("Failed to send verification email. Please try again later", 500);
   }
   
   // Reload user to get the saved state (without sensitive fields)

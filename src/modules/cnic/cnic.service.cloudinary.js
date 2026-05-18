@@ -12,6 +12,7 @@ import sharp from 'sharp';
 import { notifyAdmins, notifyUser } from '../notifications/notification.service.js';
 import { getOcrQueue, addJob } from '../../config/queues.js';
 import { isRedisConnected } from '../../config/redis.js';
+import { JOB_NAMES } from '../../workers/jobSchedules.js';
 
 /**
  * CNIC Service with Cloudinary Storage and Production-Grade OCR
@@ -268,7 +269,7 @@ export const submitCNIC = async (userId, files) => {
   let ocrJobId = null;
   if (isRedisConnected()) {
     try {
-      const job = await addJob(getOcrQueue(), 'extract-cnic', {
+      const job = await addJob(getOcrQueue(), JOB_NAMES.cnicOcr, {
         userId: user._id.toString(),
         frontImageUrl: frontUploadResult.secureUrl,
         backImageUrl: backUploadResult.secureUrl,

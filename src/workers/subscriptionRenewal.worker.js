@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import mongoose from 'mongoose';
+import { JOB_SCHEDULES } from './jobSchedules.js';
 import Subscription from '../models/Subscription.js';
 import SubscriptionMetrics from '../models/SubscriptionMetrics.js';
 import User from '../models/User.js';
@@ -810,7 +811,7 @@ async function snapshotSubscriptionMetrics() {
  */
 export function initSubscriptionRenewalCron() {
   // ── Hourly cron: renewals, usage resets, alerts, reminders ──
-  cron.schedule('0 * * * *', async () => {
+  cron.schedule(JOB_SCHEDULES.subscriptionRenewal, async () => {
     logger.info('[Renewal] Running subscription renewal check');
     try {
       await processExpiredSubscriptions();
@@ -827,7 +828,7 @@ export function initSubscriptionRenewalCron() {
   });
 
   // ── Daily cron at midnight: analytics snapshot ──
-  cron.schedule('0 0 * * *', async () => {
+  cron.schedule(JOB_SCHEDULES.subscriptionAnalyticsSnapshot, async () => {
     logger.info('[Analytics] Running daily subscription metrics snapshot');
     try {
       await snapshotSubscriptionMetrics();

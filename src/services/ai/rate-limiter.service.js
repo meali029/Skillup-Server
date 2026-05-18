@@ -6,6 +6,7 @@
 
 import aiConfig from '../../config/ai.config.js';
 import redisClient, { isRedisConnected } from '../../config/redis.js';
+import { JOB_INTERVALS } from '../../workers/jobSchedules.js';
 
 const HOUR_SECONDS = 3600;
 
@@ -106,7 +107,7 @@ class RateLimiterService {
     this.userLimits = new Map();
     this.globalLimit = new GlobalRateLimitTracker();
 
-    this.cleanupInterval = setInterval(() => this.cleanup(), 5 * 60 * 1000);
+    this.cleanupInterval = setInterval(() => this.cleanup(), JOB_INTERVALS.aiRateLimitCleanupMs);
     this.stats = { totalChecks: 0, blockedRequests: 0, userLimitHits: 0, globalLimitHits: 0 };
   }
 
@@ -259,4 +260,3 @@ class RateLimiterService {
 
 // Export singleton instance
 export default new RateLimiterService();
-

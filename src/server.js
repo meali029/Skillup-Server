@@ -20,6 +20,7 @@ import { initializeEnvLoader } from "./core/utils/envLoader.js";
 import { connectRedis, disconnectRedis } from "./config/redis.js";
 import { startWorkers, stopWorkers } from "./workers/index.js";
 import { initSubscriptionRenewalCron } from "./workers/subscriptionRenewal.worker.js";
+import { initSafepayVerifierCron } from "./workers/safepayVerifier.worker.js";
 
 // ===== PRODUCTION STARTUP DIAGNOSTICS =====
 const logEnvStatus = () => {
@@ -88,6 +89,7 @@ connectDB()
 
     // Start subscription renewal cron job
     initSubscriptionRenewalCron();
+    initSafepayVerifierCron();
 
     // Start the HTTP server AFTER database is connected
     httpServer.listen(PORT, HOST, () => {

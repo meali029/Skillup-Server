@@ -6,6 +6,7 @@ import {
   getAIFeatureStatus,
   getAIHealthStats,
   resetAICircuitBreaker,
+  sendEmailTest,
 } from './admin.settings.controller.js';
 
 const router = express.Router();
@@ -153,8 +154,18 @@ router.get('/ai-health', getAIHealthStats);
  */
 router.post('/ai-reset-circuit', resetAICircuitBreaker);
 
-export default router;
+/**
+ * @swagger
+ * /api/admin/settings/email-test:
+ *   post:
+ *     summary: Send a test email through the active provider
+ *     tags: [Admin - Settings]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/email-test', sendEmailTest);
 
+export default router;
 
 
 
