@@ -142,6 +142,77 @@ const getProvider = async () => {
  * AI Service Class
  */
 class AIService {
+  buildProposalDraftPrompt(job, freelancer) {
+    return `Create a freelancer proposal draft for this marketplace job.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "coverLetter": "100-2000 character client-facing proposal cover letter",
+  "bidAmount": 1234,
+  "deliveryTime": 7
+}
+
+Rules:
+- Be specific to the job and the freelancer skills.
+- Do not mention that you are an AI.
+- Use a professional, confident, concise tone.
+- bidAmount must be a number in PKR.
+- deliveryTime must be a number of days.
+
+JOB:
+Title: ${job.title || 'N/A'}
+Description: ${(job.description || '').substring(0, 1200)}
+Skills: ${(job.skills || []).join(', ') || 'N/A'}
+Category: ${job.category || 'N/A'}
+Budget Type: ${job.budgetType || 'fixed'}
+Budget Amount: ${job.budgetAmount || job.hourlyRate || 'N/A'}
+Estimated Hours: ${job.estimatedHours || 'N/A'}
+Duration: ${job.duration || 'N/A'}
+Experience Level: ${job.experienceLevel || 'N/A'}
+Project Size: ${job.projectSize || 'N/A'}
+
+FREELANCER:
+Skills: ${(freelancer.skills || []).join(', ') || 'N/A'}
+Experience: ${freelancer.experience || 'N/A'}
+Hourly Rate: ${freelancer.hourlyRate || 'N/A'}
+Bio: ${(freelancer.bio || '').substring(0, 700) || 'N/A'}
+Completed Jobs: ${freelancer.completedJobsCount || 0}`;
+  }
+
+  parseProposalDraftResponse(text, job) {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      const coverLetter = String(text || '').trim();
+      if (coverLetter.length >= 100) {
+        return {
+          coverLetter: coverLetter.length > 2000 ? coverLetter.substring(0, 2000) : coverLetter,
+          bidAmount: Math.max(500, Math.min(10000000, job.budgetAmount || 0)),
+          deliveryTime: 7,
+          confidence: 65,
+          generatedAt: new Date(),
+        };
+      }
+      throw new Error('No JSON found in proposal draft response');
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const coverLetter = String(parsed.coverLetter || '').trim();
+    if (coverLetter.length < 100) {
+      throw new Error('Generated cover letter is too short');
+    }
+
+    const bidAmount = this.parseNumber(String(parsed.bidAmount ?? '')) || job.budgetAmount || 0;
+    const deliveryTime = this.parseNumber(String(parsed.deliveryTime ?? '')) || 7;
+
+    return {
+      coverLetter: coverLetter.length > 2000 ? coverLetter.substring(0, 2000) : coverLetter,
+      bidAmount: Math.max(500, Math.min(10000000, bidAmount)),
+      deliveryTime: Math.max(1, Math.min(365, deliveryTime)),
+      confidence: 80,
+      generatedAt: new Date(),
+    };
+  }
+
   /**
    * Enhance job match score with AI
    * @param {Object} job - Job object (will be sanitized)
@@ -297,59 +368,22 @@ class AIService {
       // Get provider
       const provider = await getProvider();
 
-      // Generate cover letter
-      const coverLetterPrompt = promptManager.generateCoverLetterPrompt(
-        sanitizedJob,
-        sanitizedFreelancer
-      );
-      const coverLetterResponse = await provider.generateText(coverLetterPrompt, {
-        maxTokens: 2000,
-        temperature: 0.7,
+      return await circuitBreaker.execute(async () => {
+        const response = await provider.generateText(
+          this.buildProposalDraftPrompt(sanitizedJob, sanitizedFreelancer),
+          {
+            maxTokens: 1800,
+            temperature: 0.6,
+            retries: 2,
+          }
+        );
+
+        const result = this.parseProposalDraftResponse(response.text, job);
+        return {
+          ...result,
+          confidence: response.confidence || result.confidence,
+        };
       });
-
-      // Generate bid amount suggestion
-      const bidAmountPrompt = promptManager.generateBidAmountPrompt(
-        sanitizedJob,
-        sanitizedFreelancer
-      );
-      const bidAmountResponse = await provider.generateText(bidAmountPrompt, {
-        maxTokens: 50,
-        temperature: 0.3,
-      });
-
-      // Generate delivery time suggestion
-      const deliveryTimePrompt = promptManager.generateDeliveryTimePrompt(
-        sanitizedJob,
-        sanitizedFreelancer
-      );
-      const deliveryTimeResponse = await provider.generateText(deliveryTimePrompt, {
-        maxTokens: 50,
-        temperature: 0.3,
-      });
-
-      // Parse responses
-      const coverLetter = coverLetterResponse.text.trim();
-      const bidAmount = this.parseNumber(bidAmountResponse.text) || job.budgetAmount || 0;
-      const deliveryTime = this.parseNumber(deliveryTimeResponse.text) || 7;
-
-      // Validate cover letter length
-      if (coverLetter.length < 100) {
-        throw new Error('Generated cover letter is too short');
-      }
-      
-      const result = {
-        coverLetter: coverLetter.length > 2000 ? coverLetter.substring(0, 2000) : coverLetter,
-        bidAmount: Math.max(500, Math.min(10000000, bidAmount)), // Clamp to valid range
-        deliveryTime: Math.max(1, Math.min(365, deliveryTime)), // Clamp to valid range
-        confidence: Math.min(
-          coverLetterResponse.confidence || 75,
-          bidAmountResponse.confidence || 75,
-          deliveryTimeResponse.confidence || 75
-        ),
-        generatedAt: new Date(),
-      };
-
-      return result;
     } catch (error) {
       console.error('[AI Service] Error generating proposal draft:', {
         error: error.message,
@@ -874,4 +908,3 @@ class AIService {
 }
 
 export default new AIService();
-
