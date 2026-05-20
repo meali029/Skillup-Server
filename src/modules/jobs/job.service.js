@@ -7,6 +7,7 @@ import matchingService from '../../services/matching/matching.service.js';
 import aiService from '../../services/ai/ai.service.js';
 import freelancerHistoryService from '../../services/freelancer-history.service.js';
 import notificationService from '../notifications/notification.service.js';
+import { emitJobListUpdate } from '../../sockets/index.js';
 
 // Close reasons enum
 export const CLOSE_REASONS = {
@@ -56,6 +57,16 @@ export const createJob = async (jobData, clientId) => {
   // Paid-plan usage is tracked on active subscriptions.
   if (clientUser.plan && clientUser.plan !== 'free') {
     await Subscription.incrementUsage(clientId, 'jobsPosted');
+  }
+
+  if (job.status === 'open' && job.isActive && !job.deletedAt) {
+    emitJobListUpdate({
+      jobId: job._id,
+      clientId,
+      action: 'created',
+      eventName: 'job:created',
+      job,
+    });
   }
   
   return job;
@@ -188,6 +199,14 @@ export const updateJob = async (jobId, userId, updateData) => {
   await job.save();
   await job.populate('client', 'name email companyName');
 
+  emitJobListUpdate({
+    jobId: job._id,
+    clientId: userId,
+    action: 'updated',
+    eventName: 'job:updated',
+    job,
+  });
+
   return job;
 };
 
@@ -220,6 +239,14 @@ export const deleteJob = async (jobId, userId) => {
     updates.$inc.activeJobsCount = -1;
   }
   await User.findByIdAndUpdate(userId, updates);
+
+  emitJobListUpdate({
+    jobId,
+    clientId: userId,
+    action: 'deleted',
+    eventName: 'job:deleted',
+    job,
+  });
 
   return { message: 'Job deleted successfully' };
 };
@@ -351,6 +378,14 @@ export const closeJob = async (jobId, userId, closeReason = CLOSE_REASONS.OTHER,
     });
   }
 
+  emitJobListUpdate({
+    jobId: job._id,
+    clientId: userId,
+    action: 'closed',
+    eventName: 'job:closed',
+    job,
+  });
+
   return {
     job,
     rejectedProposalsCount: pendingProposals.length,
@@ -382,6 +417,14 @@ export const markJobInProgress = async (jobId) => {
     });
   }
 
+  emitJobListUpdate({
+    jobId: job._id,
+    clientId: job.client,
+    action: 'in-progress',
+    eventName: 'job:updated',
+    job,
+  });
+
   return job;
 };
 
@@ -400,6 +443,14 @@ export const markJobCompleted = async (jobId) => {
   job.status = 'completed';
   job.completedAt = new Date();
   await job.save();
+
+  emitJobListUpdate({
+    jobId: job._id,
+    clientId: job.client,
+    action: 'completed',
+    eventName: 'job:updated',
+    job,
+  });
 
   return job;
 };
@@ -445,6 +496,14 @@ export const updateJobStatus = async (jobId, userId, newStatus) => {
       $inc: { activeJobsCount: 1 }
     });
   }
+
+  emitJobListUpdate({
+    jobId: job._id,
+    clientId: userId,
+    action: newStatus,
+    eventName: 'job:updated',
+    job,
+  });
 
   return job;
 };

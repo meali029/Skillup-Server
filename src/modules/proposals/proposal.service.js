@@ -8,6 +8,7 @@ import { notifyUser } from "../notifications/notification.service.js";
 import aiService from "../../services/ai/ai.service.js";
 import Subscription from "../../models/Subscription.js";
 import { getPlanLimits } from "../../config/subscription.config.js";
+import { emitProposalEvent } from "../../sockets/index.js";
 
 // Rolling window for free-tier proposal counting
 const FREE_TIER_WINDOW_DAYS = 7;
@@ -243,6 +244,13 @@ export const createProposal = async (userId, proposalData) => {
       link: `/jobs/${jobId}/proposals/${proposal._id}`,
       data: { jobId, proposalId: proposal._id }
     });
+    emitProposalEvent('proposal:created', {
+      proposalId: proposal._id,
+      jobId,
+      clientId,
+      freelancerId: userId,
+      status: proposal.status,
+    });
   } catch (err) {
     console.error('[Notification] Failed to notify job owner about proposal', err.message);
   }
@@ -342,6 +350,15 @@ export const updateProposal = async (proposalId, userId, updateData) => {
 
   await proposal.save();
 
+  const job = await Job.findById(proposal.jobId).select('client');
+  emitProposalEvent('proposal:updated', {
+    proposalId: proposal._id,
+    jobId: proposal.jobId,
+    clientId: job?.client,
+    freelancerId: userId,
+    status: proposal.status,
+  });
+
   return await Proposal.findById(proposal._id)
     .populate("jobId", "title description budget budgetMin budgetMax client")
     .populate("freelancerId", "name email avatar skills hourlyRate");
@@ -365,6 +382,8 @@ export const withdrawProposal = async (proposalId, userId) => {
   proposal.status = "withdrawn";
   await proposal.save();
 
+  const job = await Job.findById(proposal.jobId).select('client title');
+
   // Decrement job's proposalsCount
   await Job.findByIdAndUpdate(proposal.jobId, {
     $inc: { proposalsCount: -1 }
@@ -373,6 +392,14 @@ export const withdrawProposal = async (proposalId, userId) => {
   // Decrement freelancer's activeProposalsCount
   await User.findByIdAndUpdate(userId, {
     $inc: { activeProposalsCount: -1 }
+  });
+
+  emitProposalEvent('proposal:withdrawn', {
+    proposalId: proposal._id,
+    jobId: proposal.jobId,
+    clientId: job?.client,
+    freelancerId: userId,
+    status: proposal.status,
   });
 
   return { message: "Proposal withdrawn successfully" };
@@ -631,6 +658,23 @@ export const acceptProposal = async (proposalId, clientId) => {
       link: `/conversations/${conversation._id}`,
       data: { proposalId: proposal._id, conversationId: conversation._id }
     });
+    emitProposalEvent('proposal:accepted', {
+      proposalId: proposal._id,
+      jobId: proposal.jobId._id,
+      clientId,
+      freelancerId: proposal.freelancerId,
+      status: proposal.status,
+    });
+
+    rejectedProposals.forEach((rejectedProposal) => {
+      emitProposalEvent('proposal:rejected', {
+        proposalId: rejectedProposal._id,
+        jobId: proposal.jobId._id,
+        clientId,
+        freelancerId: rejectedProposal.freelancerId,
+        status: 'rejected',
+      });
+    });
   } catch (err) {
     console.error('[Notification] Failed to notify freelancer about acceptance', err.message);
   }
@@ -676,6 +720,13 @@ export const rejectProposal = async (proposalId, clientId, reason = null) => {
       message: `Your proposal for "${proposal.jobId.title}" was rejected${reason ? `: ${reason}` : '.'}`,
       link: `/jobs/${proposal.jobId}`,
       data: { proposalId }
+    });
+    emitProposalEvent('proposal:rejected', {
+      proposalId: proposal._id,
+      jobId: proposal.jobId._id,
+      clientId,
+      freelancerId: proposal.freelancerId,
+      status: proposal.status,
     });
   } catch (err) {
     console.error('[Notification] Failed to notify freelancer about rejection', err.message);

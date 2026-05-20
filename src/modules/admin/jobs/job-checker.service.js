@@ -125,6 +125,17 @@ export const approveJob = async (jobId, adminId) => {
 
   await job.save();
 
+  // Emit socket event so clients/freelancers refresh job lists without a page reload
+  const adminQuery = User.findById(adminId);
+  const admin = adminQuery?.select ? await adminQuery.select('name role') : null;
+  emitJobEvent('job:approved', {
+    jobId: job._id,
+    clientId: job.client?.toString?.(),
+    action: 'approved',
+    job,
+    moderator: admin,
+  });
+
   return job;
 };
 

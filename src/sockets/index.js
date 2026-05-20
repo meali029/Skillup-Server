@@ -6,6 +6,20 @@ import User from '../models/User.js';
 
 let io;
 
+const toId = (value) => {
+  if (!value) return undefined;
+  return value._id?.toString?.() || value.toString?.() || String(value);
+};
+
+const compactJobPayload = (job) => ({
+  _id: toId(job?._id || job?.id),
+  title: job?.title,
+  status: job?.status,
+  moderationStatus: job?.moderationStatus,
+  isFeatured: job?.isFeatured,
+  isFlagged: job?.isFlagged,
+});
+
 // Initialize Socket.io server
 export const initializeSocketServer = (httpServer) => {
   io = new Server(httpServer, {
@@ -65,7 +79,7 @@ export const initializeSocketServer = (httpServer) => {
       socket.join('jobs'); // For job browsing updates
     } else if (socket.userRole === 'client') {
       socket.join('clients');
-    } else if (socket.userRole === 'admin') {
+    } else if (socket.userRole === 'admin' || socket.userRole === 'super_admin') {
       socket.join('admins');
     }
 
@@ -175,14 +189,7 @@ export const emitJobEvent = (eventName, data) => {
       type: eventName,
       jobId,
       action,
-      job: {
-        _id: job?._id,
-        title: job?.title,
-        status: job?.status,
-        moderationStatus: job?.moderationStatus,
-        isFeatured: job?.isFeatured,
-        isFlagged: job?.isFlagged,
-      },
+      job: compactJobPayload(job),
       moderator: {
         name: moderator?.name,
         role: moderator?.role,
@@ -197,14 +204,7 @@ export const emitJobEvent = (eventName, data) => {
     type: eventName,
     jobId,
     action,
-    job: {
-      _id: job?._id,
-      title: job?.title,
-      status: job?.status,
-      moderationStatus: job?.moderationStatus,
-      isFeatured: job?.isFeatured,
-      isFlagged: job?.isFlagged,
-    },
+    job: compactJobPayload(job),
     timestamp: new Date(),
   });
 
@@ -213,9 +213,61 @@ export const emitJobEvent = (eventName, data) => {
     type: eventName,
     jobId,
     action,
-    job,
+    job: compactJobPayload(job),
     timestamp: new Date(),
   });
+};
+
+export const emitJobListUpdate = ({ jobId, action, job, clientId, eventName = 'job:updated' }) => {
+  if (!io) {
+    console.warn('[Socket] Socket.io not initialized, skipping job list update');
+    return;
+  }
+
+  const payload = {
+    type: eventName,
+    jobId: toId(jobId || job?._id || job?.id),
+    action,
+    job: compactJobPayload(job),
+    timestamp: new Date(),
+  };
+
+  io.to('freelancers').emit('jobs:update', payload);
+
+  if (clientId) {
+    io.to(`user:${toId(clientId)}`).emit('job:updated', payload);
+  }
+
+  if (payload.jobId) {
+    io.to(`job:${payload.jobId}`).emit('job:updated', payload);
+  }
+};
+
+export const emitProposalEvent = (eventName, data = {}) => {
+  if (!io) {
+    console.warn('[Socket] Socket.io not initialized, skipping proposal event');
+    return;
+  }
+
+  const proposalId = toId(data.proposalId || data.proposal?._id || data.proposal?.id);
+  const jobId = toId(data.jobId || data.proposal?.jobId || data.proposal?.job);
+  const clientId = toId(data.clientId);
+  const freelancerId = toId(data.freelancerId);
+  const payload = {
+    type: eventName,
+    proposalId,
+    jobId,
+    status: data.status,
+    timestamp: new Date(),
+  };
+
+  [clientId, freelancerId].filter(Boolean).forEach((userId) => {
+    io.to(`user:${userId}`).emit(eventName, payload);
+  });
+
+  if (jobId) {
+    io.to(`job:${jobId}`).emit('proposal:updated', payload);
+  }
 };
 
 // Emit notification to specific user
@@ -327,6 +379,8 @@ export default {
   initializeSocketServer,
   getIO,
   emitJobEvent,
+  emitJobListUpdate,
+  emitProposalEvent,
   emitUserNotification,
   emitToRoom,
   emitMessage,
