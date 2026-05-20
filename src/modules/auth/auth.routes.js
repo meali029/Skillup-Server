@@ -634,7 +634,7 @@ function createAuthRoutes() {
       (req, res, next) => {
         passport.authenticate("google", { 
           failureRedirect: `${clientURL}/login?error=authentication_failed`,
-          session: true
+          session: false
         }, (err, user, info) => {
           if (err) {
             console.error('[Google OAuth] Callback error:', err.message);
@@ -649,15 +649,8 @@ function createAuthRoutes() {
           }
           
           console.info(`[Google OAuth] User authenticated: ${user.email} (provider: ${user.provider})`);
-          
-          req.logIn(user, (loginErr) => {
-            if (loginErr) {
-              console.error('[Google OAuth] Session login error:', loginErr.message);
-              console.error('[Google OAuth] Login error stack:', loginErr.stack);
-              return res.redirect(`${clientURL}/login?error=${encodeURIComponent(loginErr.message || 'session_error')}`);
-            }
-            next();
-          });
+          req.user = user;
+          next();
         })(req, res, next);
       },
       googleCallback

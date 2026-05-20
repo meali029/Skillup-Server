@@ -23,6 +23,14 @@ const memCache = new Map();
 const CACHE_TTL = aiConfig.cacheTTL * 1000;
 const DEFAULT_CACHE_SIZE_LIMIT = 1000;
 let cacheSizeLimit = DEFAULT_CACHE_SIZE_LIMIT;
+const PROPOSAL_DRAFT_LIMITS = {
+  coverLetterMin: 100,
+  coverLetterMax: 2000,
+  bidMin: 500,
+  bidMax: 10000000,
+  deliveryMin: 1,
+  deliveryMax: 365,
+};
 
 const cacheStats = { hits: 0, misses: 0, evictions: 0, sets: 0 };
 
@@ -180,37 +188,70 @@ Completed Jobs: ${freelancer.completedJobsCount || 0}`;
   }
 
   parseProposalDraftResponse(text, job) {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const normalizeCoverLetter = (value) =>
+      String(value || '')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const clampNumber = (value, min, max) => Math.max(min, Math.min(max, Math.round(value)));
+
+    const resolveBidBounds = () => {
+      const lower = this.parseNumber(job?.budgetMin) || PROPOSAL_DRAFT_LIMITS.bidMin;
+      const upper = this.parseNumber(job?.budgetMax) || PROPOSAL_DRAFT_LIMITS.bidMax;
+
+      return {
+        min: Math.max(PROPOSAL_DRAFT_LIMITS.bidMin, Math.min(lower, upper)),
+        max: Math.min(PROPOSAL_DRAFT_LIMITS.bidMax, Math.max(lower, upper)),
+      };
+    };
+
+    const buildValidatedDraft = ({ coverLetter, bidAmount, deliveryTime, confidence }) => {
+      const normalizedCoverLetter = normalizeCoverLetter(coverLetter);
+      if (normalizedCoverLetter.length < PROPOSAL_DRAFT_LIMITS.coverLetterMin) {
+        throw new Error('Generated cover letter is too short');
+      }
+
+      const bidBounds = resolveBidBounds();
+      const parsedBid = this.parseNumber(bidAmount) || this.parseNumber(job?.budgetAmount) || bidBounds.min;
+      const parsedDelivery = this.parseNumber(deliveryTime) || 7;
+      const parsedConfidence = this.parseNumber(confidence) ?? 80;
+
+      return {
+        coverLetter: normalizedCoverLetter.slice(0, PROPOSAL_DRAFT_LIMITS.coverLetterMax),
+        bidAmount: clampNumber(parsedBid, bidBounds.min, bidBounds.max),
+        deliveryTime: clampNumber(
+          parsedDelivery,
+          PROPOSAL_DRAFT_LIMITS.deliveryMin,
+          PROPOSAL_DRAFT_LIMITS.deliveryMax
+        ),
+        confidence: clampNumber(parsedConfidence, 0, 100),
+        generatedAt: new Date(),
+      };
+    };
+
+    const cleanedText = String(text || '').replace(/```(?:json)?|```/gi, '').trim();
+    const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      const coverLetter = String(text || '').trim();
-      if (coverLetter.length >= 100) {
-        return {
-          coverLetter: coverLetter.length > 2000 ? coverLetter.substring(0, 2000) : coverLetter,
-          bidAmount: Math.max(500, Math.min(10000000, job.budgetAmount || 0)),
+      try {
+        return buildValidatedDraft({
+          coverLetter: cleanedText,
+          bidAmount: job?.budgetAmount,
           deliveryTime: 7,
           confidence: 65,
-          generatedAt: new Date(),
-        };
+        });
+      } catch {
+        throw new Error('No valid proposal draft JSON found in AI response');
       }
-      throw new Error('No JSON found in proposal draft response');
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
-    const coverLetter = String(parsed.coverLetter || '').trim();
-    if (coverLetter.length < 100) {
-      throw new Error('Generated cover letter is too short');
-    }
-
-    const bidAmount = this.parseNumber(String(parsed.bidAmount ?? '')) || job.budgetAmount || 0;
-    const deliveryTime = this.parseNumber(String(parsed.deliveryTime ?? '')) || 7;
-
-    return {
-      coverLetter: coverLetter.length > 2000 ? coverLetter.substring(0, 2000) : coverLetter,
-      bidAmount: Math.max(500, Math.min(10000000, bidAmount)),
-      deliveryTime: Math.max(1, Math.min(365, deliveryTime)),
-      confidence: 80,
-      generatedAt: new Date(),
-    };
+    return buildValidatedDraft({
+      coverLetter: parsed.coverLetter,
+      bidAmount: parsed.bidAmount,
+      deliveryTime: parsed.deliveryTime,
+      confidence: parsed.confidence,
+    });
   }
 
   /**
@@ -379,9 +420,12 @@ Completed Jobs: ${freelancer.completedJobsCount || 0}`;
         );
 
         const result = this.parseProposalDraftResponse(response.text, job);
+        const providerConfidence = this.parseNumber(response.confidence);
         return {
           ...result,
-          confidence: response.confidence || result.confidence,
+          confidence: providerConfidence !== null
+            ? Math.max(0, Math.min(100, Math.round(providerConfidence)))
+            : result.confidence,
         };
       });
     } catch (error) {
@@ -418,8 +462,15 @@ Completed Jobs: ${freelancer.completedJobsCount || 0}`;
    * Parse number from text
    */
   parseNumber(text) {
-    const match = text.match(/\d+/);
-    return match ? parseInt(match[0]) : null;
+    if (typeof text === 'number' && Number.isFinite(text)) {
+      return text;
+    }
+
+    const match = String(text ?? '').replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+    if (!match) return null;
+
+    const value = Number(match[0]);
+    return Number.isFinite(value) ? value : null;
   }
 
   /**
