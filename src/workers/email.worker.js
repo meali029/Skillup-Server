@@ -5,6 +5,7 @@ import {
   directSendPasswordResetConfirmation,
   directSendSubscriptionEmail,
 } from '../core/utils/emailService.js';
+import { processCampaign } from '../modules/admin/communication/communication.service.js';
 import { JOB_NAMES, QUEUE_NAMES, WORKER_CONCURRENCY } from './jobSchedules.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -34,6 +35,10 @@ const emailWorker = new Worker(
       case JOB_NAMES.emailSubscription: {
         const { email, ...data } = job.data;
         await directSendSubscriptionEmail(email, data);
+        break;
+      }
+      case JOB_NAMES.emailCampaign: {
+        await processCampaign(job.data.campaignId);
         break;
       }
       default:

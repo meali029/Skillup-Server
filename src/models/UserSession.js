@@ -45,7 +45,7 @@ const userSessionSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['freelancer', 'client', 'admin', 'super_admin'],
+      enum: ['freelancer', 'client', 'admin', 'super_admin', null],
       default: null,
     },
     adminRole: {
