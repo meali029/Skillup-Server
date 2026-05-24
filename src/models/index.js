@@ -17,8 +17,10 @@ import PlatformWallet from "./PlatformWallet.js";
 import PlatformWithdrawal from "./PlatformWithdrawal.js";
 import Subscription from "./Subscription.js";
 import UserSession from "./UserSession.js";
+import EmailCampaign from "./EmailCampaign.js";
+import EmailDeliveryLog from "./EmailDeliveryLog.js";
 
-export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest, PlatformWallet, PlatformWithdrawal, Subscription, UserSession };
+export { User, Job, Proposal, Contract, Conversation, Message, AdminSettings, EnvironmentVariable, Wallet, Escrow, Transaction, WithdrawalRequest, PlatformWallet, PlatformWithdrawal, Subscription, UserSession, EmailCampaign, EmailDeliveryLog };
 
 export default {
   User,
@@ -37,4 +39,6 @@ export default {
   PlatformWithdrawal,
   Subscription,
   UserSession,
+  EmailCampaign,
+  EmailDeliveryLog,
 };

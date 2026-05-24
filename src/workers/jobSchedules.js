@@ -24,6 +24,7 @@ export const JOB_NAMES = Object.freeze({
   emailOtp: 'send-otp',
   emailPasswordReset: 'send-password-reset',
   emailSubscription: 'send-subscription-email',
+  emailCampaign: 'send-email-campaign',
   cnicOcr: 'extract-cnic',
 });
 
